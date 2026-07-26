@@ -11,7 +11,7 @@ Placar ao vivo dos jogos do Brasileirão Série A, com visual retrô inspirado n
 - Atualização automática a cada 30 segundos
 - Filtro para mostrar apenas partidas em andamento
 - Alerta sonoro configurável ao sair um gol ou cartão vermelho (preferência salva em cookie)
-- Odds da Betano para os próximos jogos e partidas em andamento
+- Odds da Betano e da Betnacional para os próximos jogos e partidas em andamento
 
 ## Como rodar localmente
 
@@ -30,7 +30,7 @@ Depois acesse http://127.0.0.1:8000
 scoreboard/
 ├── main.py             # FastAPI: inicia o scraper em background + serve API e estáticos
 ├── scraper.py          # busca e normaliza os dados do ge.globo.com
-├── odds.py             # busca odds na betano.bet.br e casa os times com os do ge.globo
+├── odds.py             # busca odds na betano.bet.br e na betnacional.bet.br, casando os times com os do ge.globo
 ├── parsing.py          # helper compartilhado p/ extrair JSON embutido em HTML
 ├── state.py            # estado compartilhado em memória (snapshot da rodada atual)
 ├── static/             # frontend (HTML/CSS/JS puro)
@@ -41,7 +41,7 @@ Os escudos em `uploads/escudos/` são baixados automaticamente pelo scraper na p
 
 ## Fonte de dados
 
-Placar e eventos vêm do [ge.globo.com](https://ge.globo.com/futebol/brasileirao-serie-a/); odds vêm do [betano.bet.br](https://www.betano.bet.br/sport/futebol/brasil/brasileirao-serie-a-betano/10016/). Ambos sem autenticação ou chave de API.
+Placar e eventos vêm do [ge.globo.com](https://ge.globo.com/futebol/brasileirao-serie-a/); odds vêm do [betano.bet.br](https://www.betano.bet.br/sport/futebol/brasil/brasileirao-serie-a-betano/10016/) e do [betnacional.bet.br](https://betnacional.bet.br/apostas-brasileirao-serie-a). Todas sem autenticação ou chave de API.
 
 ## Deploy
 

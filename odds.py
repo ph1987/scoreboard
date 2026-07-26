@@ -10,11 +10,11 @@ import httpx
 from parsing import extrair_bloco_balanceado
 
 # scraping direto e gratuito — sem limite de créditos como numa API paga,
-# mas ainda assim não há motivo pra bater no site com mais frequência que o placar
+# mas ainda assim não há motivo pra bater nos sites com mais frequência que o placar
 ODDS_INTERVALO_SEGUNDOS = 10 * 60
 
-URL_RODADA = "https://www.betano.bet.br/sport/futebol/brasil/brasileirao-serie-a-betano/10016/"
-BOOKMAKER_LABEL = "Betano"
+URL_BETANO = "https://www.betano.bet.br/sport/futebol/brasil/brasileirao-serie-a-betano/10016/"
+URL_BETNACIONAL = "https://betnacional.bet.br/apostas-brasileirao-serie-a"
 
 HEADERS = {
     "User-Agent": (
@@ -40,9 +40,9 @@ def _mesmo_time(nome_a: str, nome_b: str) -> bool:
     return bool(intersecao) and len(intersecao) / min(len(palavras_a), len(palavras_b)) >= 0.5
 
 
-async def fetch_odds() -> list[dict]:
+async def _fetch_odds_betano() -> list[dict]:
     async with httpx.AsyncClient(follow_redirects=True, timeout=15) as client:
-        resp = await client.get(URL_RODADA, headers=HEADERS)
+        resp = await client.get(URL_BETANO, headers=HEADERS)
         resp.raise_for_status()
         html = resp.text
 
@@ -72,11 +72,78 @@ async def fetch_odds() -> list[dict]:
                 "casa": precos["1"],
                 "empate": precos["X"],
                 "fora": precos["2"],
-                "casa_de_apostas": BOOKMAKER_LABEL,
+                "casa_de_apostas": "Betano",
             }
         )
 
     return odds
+
+
+async def _fetch_odds_betnacional() -> list[dict]:
+    async with httpx.AsyncClient(follow_redirects=True, timeout=15) as client:
+        resp = await client.get(URL_BETNACIONAL, headers=HEADERS)
+        resp.raise_for_status()
+        html = resp.text
+
+    marcador_tag = "__NEXT_DATA__"
+    idx = html.find(marcador_tag)
+    if idx == -1:
+        return []
+    marcador_json = 'type="application/json">'
+    inicio = html.find(marcador_json, idx)
+    if inicio == -1:
+        return []
+    inicio += len(marcador_json)
+    dados = json.loads(extrair_bloco_balanceado(html, inicio))
+
+    cache = dados["props"]["pageProps"]["initialState"]["cache"]
+    eventos = cache["events"]["entities"]
+    outcomes = cache["outcomes"]["entities"]
+
+    odds = []
+    for evento_id, evento in eventos.items():
+        if evento.get("type") != "prematch":
+            continue
+        if evento.get("tournament", {}).get("name") != "Brasileirão Série A":
+            continue
+        home = evento.get("home")
+        away = evento.get("away")
+        if not home or not away:
+            continue
+
+        prefixo = f"{evento_id}_"
+        precos = {}
+        for chave, outcome in outcomes.items():
+            if not chave.startswith(prefixo):
+                continue
+            preco = (outcome.get("odd") or {}).get("effective")
+            if outcome.get("name") in (home["name"], away["name"], "Empate") and preco is not None:
+                precos[outcome["name"]] = preco
+
+        if not {home["name"], away["name"], "Empate"} <= precos.keys():
+            continue
+
+        odds.append(
+            {
+                "time_casa": home["name"],
+                "time_fora": away["name"],
+                "casa": precos[home["name"]],
+                "empate": precos["Empate"],
+                "fora": precos[away["name"]],
+                "casa_de_apostas": "Betnacional",
+            }
+        )
+
+    return odds
+
+
+async def fetch_odds() -> list[list[dict]]:
+    """Busca as odds de cada casa em paralelo. Retorna uma lista por casa,
+    pra que uma fonte fora do ar não derrube as demais."""
+    resultados = await asyncio.gather(
+        _fetch_odds_betano(), _fetch_odds_betnacional(), return_exceptions=True
+    )
+    return [r if not isinstance(r, Exception) else [] for r in resultados]
 
 
 def encontrar_odds(time_casa: str, time_fora: str, lista_odds: list[dict]) -> dict | None:
@@ -94,8 +161,8 @@ def encontrar_odds(time_casa: str, time_fora: str, lista_odds: list[dict]) -> di
 async def odds_loop(state):
     while True:
         try:
-            odds = await fetch_odds()
-            state.update_odds(odds)
+            listas_odds = await fetch_odds()
+            state.update_odds(listas_odds)
         except Exception as e:
             print(f"Erro ao buscar odds: {e}")
         await asyncio.sleep(ODDS_INTERVALO_SEGUNDOS)

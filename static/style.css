@@ -249,16 +249,21 @@ body {
   flex-shrink: 0;
 }
 
-.partida-odds {
-  display: flex;
-  align-items: center;
+.partida-odds-lista {
+  display: grid;
+  grid-template-columns: repeat(4, auto);
   justify-content: center;
+  column-gap: 14px;
+  row-gap: 2px;
   flex-shrink: 0;
-  gap: 14px;
   margin-top: auto;
   padding-top: 6px;
   border-top: 1px dashed #2f7a4f;
   font-size: 11px;
+}
+
+.partida-odds {
+  display: contents;
 }
 
 .partida-odds-casa {
@@ -287,6 +292,25 @@ body {
 
 .cartao-vermelho .evento-icone { color: #ff3333; }
 .cartao-vermelho .evento-jogador { color: #ff6666; }
+
+.rodape {
+  max-width: 900px;
+  margin: 12px auto 0;
+  padding: 4px 16px;
+  font-size: 10px;
+  letter-spacing: 0.5px;
+  color: #7fa98f;
+  text-align: center;
+}
+
+.rodape a {
+  color: #7fa98f;
+  text-decoration: underline;
+}
+
+.rodape a:hover {
+  color: #ffffff;
+}
 
 .grid-vazio {
   grid-column: 1 / -1;

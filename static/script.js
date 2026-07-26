@@ -208,8 +208,13 @@ function criarPartidaCard(partida) {
     card.appendChild(listaEventos);
   }
 
-  if (partida.odds && (partida.status === "agendado" || partida.status === "ao_vivo")) {
-    card.appendChild(criarOddsLinha(partida.odds));
+  if (partida.odds && partida.odds.length > 0 && (partida.status === "agendado" || partida.status === "ao_vivo")) {
+    const listaOdds = document.createElement("div");
+    listaOdds.className = "partida-odds-lista";
+    for (const odds of partida.odds) {
+      listaOdds.appendChild(criarOddsLinha(odds));
+    }
+    card.appendChild(listaOdds);
   }
 
   return card;
