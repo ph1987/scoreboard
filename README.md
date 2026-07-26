@@ -1,5 +1,7 @@
 # Scoreboard Brasileirão Série A
 
+![print-v0](print-v0.png)
+
 Placar ao vivo dos jogos do Brasileirão Série A, com visual retrô inspirado na tela de resultados do Elifoot 98. Pensado para ser usado como página pública ou como overlay/Browser Source no OBS.
 
 ## Funcionalidades
