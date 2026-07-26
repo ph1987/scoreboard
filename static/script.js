@@ -37,7 +37,11 @@ async function atualizarPlacar() {
     const resp = await fetch("/api/partidas");
     const dados = await resp.json();
     notificarNovidades(dados);
+
+    // renderizar() recria os cards do zero; sem isso, a página voltaria pro topo a cada ciclo
+    const posicaoScroll = window.scrollY;
     renderizar(dados);
+    window.scrollTo(0, posicaoScroll);
   } catch (e) {
     console.error("Erro ao buscar partidas:", e);
   }
@@ -111,6 +115,40 @@ function criarEventoItem(evento) {
   return li;
 }
 
+function criarOddItem(rotulo, valor) {
+  const item = document.createElement("span");
+  item.className = "partida-odds-item";
+
+  const spanRotulo = document.createElement("span");
+  spanRotulo.className = "partida-odds-rotulo";
+  spanRotulo.textContent = rotulo;
+
+  const spanValor = document.createElement("span");
+  spanValor.className = "partida-odds-valor";
+  spanValor.textContent = typeof valor === "number" ? valor.toFixed(2) : "-";
+
+  item.append(spanRotulo, spanValor);
+  return item;
+}
+
+function criarOddsLinha(odds) {
+  const container = document.createElement("div");
+  container.className = "partida-odds";
+
+  const casaDeApostas = document.createElement("span");
+  casaDeApostas.className = "partida-odds-casa";
+  casaDeApostas.textContent = odds.casa_de_apostas;
+
+  container.append(
+    casaDeApostas,
+    criarOddItem("1", odds.casa),
+    criarOddItem("X", odds.empate),
+    criarOddItem("2", odds.fora)
+  );
+
+  return container;
+}
+
 function criarPartidaCard(partida) {
   const card = document.createElement("div");
   card.className = `partida partida--${partida.status}`;
@@ -170,6 +208,10 @@ function criarPartidaCard(partida) {
     card.appendChild(listaEventos);
   }
 
+  if (partida.odds && (partida.status === "agendado" || partida.status === "ao_vivo")) {
+    card.appendChild(criarOddsLinha(partida.odds));
+  }
+
   return card;
 }
 
@@ -192,7 +234,15 @@ function renderizarGrid(partidas) {
   }
 
   for (const partida of partidasFiltradas) {
-    grid.appendChild(criarPartidaCard(partida));
+    const card = criarPartidaCard(partida);
+    grid.appendChild(card);
+
+    // com o card já no DOM (scrollHeight correto), rola a lista de eventos
+    // pro final, priorizando mostrar os lances mais recentes quando não couber tudo
+    const listaEventos = card.querySelector(".partida-eventos");
+    if (listaEventos) {
+      listaEventos.scrollTop = listaEventos.scrollHeight;
+    }
   }
 }
 

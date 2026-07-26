@@ -8,6 +8,8 @@ from datetime import datetime
 
 import httpx
 
+from parsing import extrair_bloco_balanceado
+
 INTERVALO_SEGUNDOS = 30
 
 URL_RODADA = "https://ge.globo.com/futebol/brasileirao-serie-a/"
@@ -50,33 +52,6 @@ def _data_hora_formatada(data_realizacao: str) -> str:
     dt = datetime.fromisoformat(data_realizacao)
     dia_semana = DIAS_SEMANA[dt.weekday()]
     return f"{dia_semana} ({dt.strftime('%d/%m')}) — {dt.strftime('%H:%M')}"
-
-
-def _extrair_bloco_balanceado(texto: str, indice_abertura: int) -> str:
-    """Extrai um literal JSON (objeto ou array) a partir do índice de '{' ou '[',
-    respeitando aninhamento e strings — regex simples falha com JSON grande/aninhado."""
-    profundidade = 0
-    em_string = False
-    escapando = False
-    for i in range(indice_abertura, len(texto)):
-        c = texto[i]
-        if em_string:
-            if escapando:
-                escapando = False
-            elif c == "\\":
-                escapando = True
-            elif c == '"':
-                em_string = False
-        else:
-            if c == '"':
-                em_string = True
-            elif c in "[{":
-                profundidade += 1
-            elif c in "]}":
-                profundidade -= 1
-                if profundidade == 0:
-                    return texto[indice_abertura : i + 1]
-    raise ValueError("bloco JSON não fechado corretamente")
 
 
 def _status_partida(jogo: dict) -> str:
@@ -146,7 +121,7 @@ async def _buscar_eventos_partida(
     if idx == -1:
         return []
     inicio_array = html.find("[", idx)
-    plays = json.loads(_extrair_bloco_balanceado(html, inicio_array))
+    plays = json.loads(extrair_bloco_balanceado(html, inicio_array))
 
     def time_adversario(sigla: str) -> str:
         return sigla_fora if sigla == sigla_casa else sigla_casa
@@ -202,7 +177,7 @@ async def fetch_dados() -> dict:
         if not match:
             raise ValueError("bloco 'classificacao' não encontrado no HTML")
         inicio = match.end() - 1
-        dados_rodada = json.loads(_extrair_bloco_balanceado(html, inicio))
+        dados_rodada = json.loads(extrair_bloco_balanceado(html, inicio))
 
         jogos = dados_rodada["lista_jogos"]
 

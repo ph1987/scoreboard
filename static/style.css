@@ -101,6 +101,9 @@ body {
 }
 
 .partida {
+  display: flex;
+  flex-direction: column;
+  min-height: 180px;
   border: 2px solid #ffffff;
   background: #063d1f;
   padding: 8px 10px;
@@ -110,6 +113,7 @@ body {
 .partida-linha {
   display: flex;
   align-items: center;
+  flex-shrink: 0;
   gap: 6px;
 }
 
@@ -148,6 +152,7 @@ body {
 }
 
 .partida-status {
+  flex-shrink: 0;
   margin-top: 6px;
   padding-top: 4px;
   border-top: 1px dashed #2f7a4f;
@@ -194,11 +199,27 @@ body {
 }
 
 .partida-eventos {
+  flex: 1;
+  min-height: 0; /* necessário p/ o overflow funcionar dentro de um item flex */
+  max-height: 90px;
+  overflow-y: auto;
   margin-top: 6px;
   list-style: none;
   padding: 0;
   font-size: 11px;
   line-height: 1.6;
+}
+
+.partida-eventos::-webkit-scrollbar {
+  width: 5px;
+}
+
+.partida-eventos::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.partida-eventos::-webkit-scrollbar-thumb {
+  background: #2f7a4f;
 }
 
 .partida-eventos li {
@@ -226,6 +247,39 @@ body {
   height: 14px;
   object-fit: contain;
   flex-shrink: 0;
+}
+
+.partida-odds {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  gap: 14px;
+  margin-top: auto;
+  padding-top: 6px;
+  border-top: 1px dashed #2f7a4f;
+  font-size: 11px;
+}
+
+.partida-odds-casa {
+  color: #7fa98f;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.partida-odds-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.partida-odds-rotulo {
+  color: #7fa98f;
+}
+
+.partida-odds-valor {
+  color: #ffffff;
+  font-weight: bold;
 }
 
 .gol .evento-icone { color: #ffd700; }

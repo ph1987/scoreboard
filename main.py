@@ -5,14 +5,16 @@ import os
 
 from state import MatchState
 from scraper import scrape_loop
+from odds import odds_loop
 
 app = FastAPI()
 state = MatchState()
 
 @app.on_event("startup")
 async def startup_event():
-    # dispara o scraper rodando em background, sem bloquear a API
+    # dispara o scraper e o buscador de odds rodando em background, sem bloquear a API
     asyncio.create_task(scrape_loop(state))
+    asyncio.create_task(odds_loop(state))
 
 @app.get("/api/partidas")
 async def get_partidas():

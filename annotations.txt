@@ -3,8 +3,8 @@ todolist:
 - banner laterais de bets
 - adsense
 - adicionar odds às partidas das 3 principais bets
-    - bet365
-    - betano
+    - bet365 
+    - betano ✅
     - superbet e betnacional
 - adicionar jogos de libertadores
 - adicionar jogos de copa do brasil
