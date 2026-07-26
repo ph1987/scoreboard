@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8">
+  <title>Scoreboard - Brasileirão Série A</title>
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="scoreboard">
+    <div class="scoreboard-header">
+      <h1>BRASILEIRÃO SÉRIE A</h1>
+      <div class="scoreboard-header-direita">
+        <span id="rodada-atual" class="rodada"></span>
+        <div class="controles">
+          <button id="btn-filtro-ao-vivo" class="botao-controle" type="button" title="Mostrar apenas partidas em andamento">🔴 AO VIVO</button>
+          <button id="btn-alertas" class="botao-controle ativo" type="button" title="Alertas sonoros de gol e cartão vermelho">🔊 ALERTAS</button>
+        </div>
+      </div>
+    </div>
+    <div id="grid-partidas" class="grid-partidas">
+      <!-- script.js preenche isso dinamicamente -->
+    </div>
+  </div>
+  <audio id="som-alerta" src="/uploads/alerta-bolinha-globo.mp3" preload="auto"></audio>
+  <script src="script.js"></script>
+</body>
+</html>

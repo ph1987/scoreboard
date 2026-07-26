@@ -1,0 +1,15 @@
+# Ambiente virtual Python
+venv/
+
+# Cache de bytecode Python
+__pycache__/
+*.pyc
+
+# Escudos baixados automaticamente pelo scraper (cache local, não precisa versionar)
+uploads/escudos/
+
+# Variáveis de ambiente / segredos
+.env
+
+# Sistema
+.DS_Store
