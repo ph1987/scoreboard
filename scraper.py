@@ -26,6 +26,10 @@ STATUS_POR_BROADCAST = {
     "ENCERRADA": "encerrado",
 }
 
+# "FIM_DE_JOGO" é o apito final; "POS_JOGO" é a cobertura editorial que vem depois —
+# ambos indicam que a partida já encerrou no lance a lance
+PERIODOS_ENCERRADOS = {"FIM_DE_JOGO", "POS_JOGO"}
+
 # "moment" vem relativo ao período (zera a cada tempo); somamos a base de cada
 # período para obter o minuto padrão de partida (base 90)
 BASE_MINUTO_POR_PERIODO = {
@@ -111,7 +115,7 @@ async def _garantir_escudo_local(client: httpx.AsyncClient, equipe: dict) -> str
 
 async def _buscar_eventos_partida(
     client: httpx.AsyncClient, url_jogo: str, sigla_casa: str, sigla_fora: str
-) -> list[dict]:
+) -> tuple[list[dict], bool]:
     resp = await client.get(url_jogo, headers=HEADERS, timeout=15)
     resp.raise_for_status()
     html = resp.text
@@ -119,9 +123,13 @@ async def _buscar_eventos_partida(
     marcador = "plays: Array.from("
     idx = html.find(marcador)
     if idx == -1:
-        return []
+        return [], False
     inicio_array = html.find("[", idx)
     plays = json.loads(extrair_bloco_balanceado(html, inicio_array))
+
+    # o lance mais recente do blog ao vivo é mais confiável que o status "oficial"
+    # do resumo da rodada, que às vezes ainda diz "LIVE" com o jogo já encerrado
+    partida_encerrada = bool(plays) and (plays[0].get("period") or {}).get("id") in PERIODOS_ENCERRADOS
 
     def time_adversario(sigla: str) -> str:
         return sigla_fora if sigla == sigla_casa else sigla_casa
@@ -149,7 +157,8 @@ async def _buscar_eventos_partida(
                     "_minuto_ordenacao": minuto_num,
                 }
             )
-        elif tipo_jogada == "CARD" and detalhes.get("kind") == "RED":
+        elif tipo_jogada == "CARD" and detalhes.get("kind") == "RED" and jogador:
+            # sem jogador associado (ex: cartão pra comissão técnica), não há o que notificar
             eventos.append(
                 {
                     "tipo": "cartao_vermelho",
@@ -164,7 +173,7 @@ async def _buscar_eventos_partida(
     for evento in eventos:
         del evento["_minuto_ordenacao"]
 
-    return eventos
+    return eventos, partida_encerrada
 
 
 async def fetch_dados() -> dict:
@@ -192,7 +201,7 @@ async def fetch_dados() -> dict:
                     _buscar_eventos_partida(client, url_jogo, sigla_casa, sigla_fora)
                 )
             else:
-                tarefas_eventos.append(asyncio.sleep(0, result=[]))
+                tarefas_eventos.append(asyncio.sleep(0, result=([], False)))
 
             tarefas_escudos.append(_garantir_escudo_local(client, jogo["equipes"]["mandante"]))
             tarefas_escudos.append(_garantir_escudo_local(client, jogo["equipes"]["visitante"]))
@@ -203,7 +212,7 @@ async def fetch_dados() -> dict:
     partidas = []
     for i, (jogo, eventos_resultado) in enumerate(zip(jogos, listas_eventos)):
         eventos_ok = not isinstance(eventos_resultado, Exception)
-        eventos = eventos_resultado if eventos_ok else []
+        eventos, partida_encerrada = eventos_resultado if eventos_ok else ([], False)
 
         escudo_casa = escudos[i * 2] if not isinstance(escudos[i * 2], Exception) else None
         escudo_fora = escudos[i * 2 + 1] if not isinstance(escudos[i * 2 + 1], Exception) else None
@@ -217,11 +226,15 @@ async def fetch_dados() -> dict:
 
         if jogo["jogo_ja_comecou"] and eventos_ok:
             placar_casa, placar_fora = _placar_por_eventos(eventos, sigla_casa, sigla_fora)
+            # o lance a lance é mais confiável que o status "oficial" do resumo da
+            # rodada, que às vezes ainda diz "ao vivo" com o jogo já encerrado
+            status = "encerrado" if partida_encerrada else "ao_vivo"
         else:
             # partida ainda não começou, ou não foi possível buscar o lance a lance:
-            # usa o placar oficial do resumo da rodada como melhor informação disponível
+            # usa o placar/status oficiais do resumo da rodada como melhor informação disponível
             placar_casa = jogo["placar_oficial_mandante"]
             placar_fora = jogo["placar_oficial_visitante"]
+            status = _status_partida(jogo)
 
         partidas.append(
             {
@@ -232,7 +245,7 @@ async def fetch_dados() -> dict:
                 "placar_casa": placar_casa,
                 "placar_fora": placar_fora,
                 "eventos": eventos,
-                "status": _status_partida(jogo),
+                "status": status,
                 "data_hora": _data_hora_formatada(jogo["data_realizacao"]),
             }
         )
