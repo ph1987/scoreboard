@@ -7,15 +7,20 @@ class MatchState:
     def __init__(self):
         self._current = {}
         self._odds_por_casa = []  # lista de listas: uma por casa de apostas, atualizada num ciclo separado
+        self._tem_partida_hoje = True  # otimista até o primeiro fetch: evita ficar "preguiçoso" de largada
 
     def get_current(self):
         return self._current
+
+    def tem_partida_hoje(self) -> bool:
+        return self._tem_partida_hoje
 
     def update(self, new_data: dict) -> bool:
         """
         Atualiza o estado se houver mudança.
         Retorna True se algo mudou (novo gol, cartão, etc), False caso contrário.
         """
+        self._tem_partida_hoje = new_data.pop("_tem_partida_hoje", True)
         self._aplicar_odds(new_data)
         changed = new_data != self._current
         if changed:

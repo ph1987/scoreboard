@@ -53,23 +53,21 @@ function chaveEvento(partida, evento) {
 
 function notificarNovidades(dados) {
   const chavesAtuais = new Set();
+  let houveGolNovo = false;
+
   for (const partida of dados.partidas ?? []) {
     for (const evento of partida.eventos ?? []) {
-      chavesAtuais.add(chaveEvento(partida, evento));
+      const chave = chaveEvento(partida, evento);
+      chavesAtuais.add(chave);
+      // cartão vermelho continua aparecendo na partida, mas só gol dispara o alerta sonoro
+      if (eventosVistos !== null && !eventosVistos.has(chave) && evento.tipo === "gol") {
+        houveGolNovo = true;
+      }
     }
   }
 
-  if (eventosVistos !== null) {
-    let houveNovidade = false;
-    for (const chave of chavesAtuais) {
-      if (!eventosVistos.has(chave)) {
-        houveNovidade = true;
-        break;
-      }
-    }
-    if (houveNovidade && alertasAtivos) {
-      tocarAlerta();
-    }
+  if (houveGolNovo && alertasAtivos) {
+    tocarAlerta();
   }
 
   eventosVistos = chavesAtuais;
@@ -259,6 +257,7 @@ function renderizar(dados) {
 
 function atualizarBotaoFiltro(btn) {
   btn.classList.toggle("ativo", apenasAoVivo);
+  btn.title = apenasAoVivo ? "Exibir todas as partidas" : "Exibir apenas partidas ao vivo";
 }
 
 function atualizarBotaoAlertas(btn) {

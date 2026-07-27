@@ -4,13 +4,19 @@ import asyncio
 import json
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 import httpx
 
 from parsing import extrair_bloco_balanceado
 
 INTERVALO_SEGUNDOS = 30
+# sem nenhuma partida hoje, não há por que ficar batendo na fonte a cada 30s
+INTERVALO_SEM_JOGO_HOJE_SEGUNDOS = 3 * 60 * 60
+
+# o servidor pode rodar em outro fuso (ex: deploy na Europa); "hoje" precisa ser
+# sempre calculado no horário do Brasil, que não observa horário de verão desde 2019
+FUSO_BRASIL = timezone(timedelta(hours=-3))
 
 URL_RODADA = "https://ge.globo.com/futebol/brasileirao-serie-a/"
 
@@ -52,14 +58,29 @@ DIAS_SEMANA = {
 }
 
 
-def _data_hora_formatada(data_realizacao: str) -> str:
+def _data_hora_formatada(data_realizacao: str | None) -> str:
+    # times de rodadas futuras às vezes ainda não têm data confirmada pela fonte
+    if not data_realizacao:
+        return "Data a definir"
     dt = datetime.fromisoformat(data_realizacao)
     dia_semana = DIAS_SEMANA[dt.weekday()]
     return f"{dia_semana} ({dt.strftime('%d/%m')}) — {dt.strftime('%H:%M')}"
 
 
+def _tem_partida_hoje(jogos: list[dict]) -> bool:
+    hoje = datetime.now(FUSO_BRASIL).date()
+    for jogo in jogos:
+        data_realizacao = jogo.get("data_realizacao")
+        if data_realizacao and datetime.fromisoformat(data_realizacao).date() == hoje:
+            return True
+    return False
+
+
 def _status_partida(jogo: dict) -> str:
-    broadcast_id = jogo["transmissao"]["broadcast"]["id"]
+    transmissao = jogo.get("transmissao")
+    if not transmissao:
+        return "agendado"
+    broadcast_id = transmissao["broadcast"]["id"]
     if broadcast_id in STATUS_POR_BROADCAST:
         return STATUS_POR_BROADCAST[broadcast_id]
     return "agendado"
@@ -250,14 +271,20 @@ async def fetch_dados() -> dict:
             }
         )
 
-    return {"rodada": dados_rodada["rodada"]["atual"], "partidas": partidas}
+    return {
+        "rodada": dados_rodada["rodada"]["atual"],
+        "partidas": partidas,
+        "_tem_partida_hoje": _tem_partida_hoje(jogos),
+    }
 
 
 async def scrape_loop(state):
     while True:
+        intervalo = INTERVALO_SEGUNDOS
         try:
             dados = await fetch_dados()
             state.update(dados)
+            intervalo = INTERVALO_SEGUNDOS if state.tem_partida_hoje() else INTERVALO_SEM_JOGO_HOJE_SEGUNDOS
         except Exception as e:
             print(f"Erro ao buscar dados: {e}")
-        await asyncio.sleep(INTERVALO_SEGUNDOS)
+        await asyncio.sleep(intervalo)

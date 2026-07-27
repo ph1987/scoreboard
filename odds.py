@@ -12,6 +12,8 @@ from parsing import extrair_bloco_balanceado
 # scraping direto e gratuito — sem limite de créditos como numa API paga,
 # mas ainda assim não há motivo pra bater nos sites com mais frequência que o placar
 ODDS_INTERVALO_SEGUNDOS = 10 * 60
+# sem partida hoje, as odds também podem esperar (mesmo sinal usado pelo scraper do placar)
+ODDS_INTERVALO_SEM_JOGO_HOJE_SEGUNDOS = 3 * 60 * 60
 
 URL_BETANO = "https://www.betano.bet.br/sport/futebol/brasil/brasileirao-serie-a-betano/10016/"
 URL_BETNACIONAL = "https://betnacional.bet.br/apostas-brasileirao-serie-a"
@@ -160,9 +162,11 @@ def encontrar_odds(time_casa: str, time_fora: str, lista_odds: list[dict]) -> di
 
 async def odds_loop(state):
     while True:
+        intervalo = ODDS_INTERVALO_SEGUNDOS
         try:
             listas_odds = await fetch_odds()
             state.update_odds(listas_odds)
+            intervalo = ODDS_INTERVALO_SEGUNDOS if state.tem_partida_hoje() else ODDS_INTERVALO_SEM_JOGO_HOJE_SEGUNDOS
         except Exception as e:
             print(f"Erro ao buscar odds: {e}")
-        await asyncio.sleep(ODDS_INTERVALO_SEGUNDOS)
+        await asyncio.sleep(intervalo)
