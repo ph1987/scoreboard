@@ -139,13 +139,27 @@ async def _fetch_odds_betnacional() -> list[dict]:
     return odds
 
 
+FONTES_ODDS = {
+    "Betano": _fetch_odds_betano,
+    "Betnacional": _fetch_odds_betnacional,
+}
+
+
 async def fetch_odds() -> list[list[dict]]:
     """Busca as odds de cada casa em paralelo. Retorna uma lista por casa,
     pra que uma fonte fora do ar não derrube as demais."""
     resultados = await asyncio.gather(
-        _fetch_odds_betano(), _fetch_odds_betnacional(), return_exceptions=True
+        *(fonte() for fonte in FONTES_ODDS.values()), return_exceptions=True
     )
-    return [r if not isinstance(r, Exception) else [] for r in resultados]
+
+    listas = []
+    for nome, resultado in zip(FONTES_ODDS.keys(), resultados):
+        if isinstance(resultado, Exception):
+            print(f"Erro ao buscar odds da {nome}: {type(resultado).__name__}: {resultado}")
+            listas.append([])
+        else:
+            listas.append(resultado)
+    return listas
 
 
 def encontrar_odds(time_casa: str, time_fora: str, lista_odds: list[dict]) -> dict | None:
