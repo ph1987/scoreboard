@@ -1,0 +1,19 @@
+[Unit]
+Description=Scoreboard Brasileirao Serie A
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/scoreboard
+# escuta so no localhost: quem fala com a internet e o Caddy, que faz o TLS
+ExecStart=/home/ubuntu/scoreboard/venv/bin/uvicorn main:app --host 127.0.0.1 --port 8000
+Restart=always
+RestartSec=5
+# saida vai pro journalctl (ali aparecem os "Erro ao buscar odds da ..." do fetch_odds)
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

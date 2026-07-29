@@ -1,0 +1,5 @@
+retroplacar.com, www.retroplacar.com {
+	# Caddy resolve o certificado Let's Encrypt sozinho no primeiro acesso
+	encode gzip
+	reverse_proxy 127.0.0.1:8000
+}
