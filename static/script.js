@@ -1,5 +1,6 @@
 const INTERVALO_MS = 30000;
 const CHAVE_COOKIE_ALERTAS = "scoreboard_alertas_ativos";
+const DURACAO_TOAST_MS = 60000;
 
 const ICONE_EVENTO = {
   gol: "⚽",
@@ -47,30 +48,75 @@ async function atualizarPlacar() {
   }
 }
 
-function chaveEvento(partida, evento) {
-  return [partida.time_casa, partida.time_fora, evento.tipo, evento.time, evento.minuto, evento.jogador].join("|");
+function chaveEvento(competicao, partida, evento) {
+  // o mesmo confronto pode acontecer em duas competições (ex: Fluminense x Vasco
+  // no Brasileirão e na Copa do Brasil), então a chave precisa da competição
+  return [competicao.id, partida.time_casa, partida.time_fora, evento.tipo, evento.time, evento.minuto, evento.jogador].join("|");
 }
 
 function notificarNovidades(dados) {
   const chavesAtuais = new Set();
-  let houveGolNovo = false;
+  const golsNovos = [];
 
-  for (const partida of dados.partidas ?? []) {
-    for (const evento of partida.eventos ?? []) {
-      const chave = chaveEvento(partida, evento);
-      chavesAtuais.add(chave);
-      // cartão vermelho continua aparecendo na partida, mas só gol dispara o alerta sonoro
-      if (eventosVistos !== null && !eventosVistos.has(chave) && evento.tipo === "gol") {
-        houveGolNovo = true;
+  for (const competicao of dados.competicoes ?? []) {
+    for (const partida of competicao.partidas ?? []) {
+      for (const evento of partida.eventos ?? []) {
+        const chave = chaveEvento(competicao, partida, evento);
+        chavesAtuais.add(chave);
+        // cartão vermelho continua aparecendo na partida, mas só gol notifica
+        if (eventosVistos !== null && !eventosVistos.has(chave) && evento.tipo === "gol") {
+          golsNovos.push({ partida, evento });
+        }
       }
     }
   }
 
-  if (houveGolNovo && alertasAtivos) {
+  if (golsNovos.length > 0 && alertasAtivos) {
     tocarAlerta();
+    for (const { partida, evento } of golsNovos) {
+      mostrarToastGol(partida, evento);
+    }
   }
 
   eventosVistos = chavesAtuais;
+}
+
+function criarToastConteudo(partida, evento) {
+  const conteudo = document.createElement("div");
+  conteudo.className = "toast-gol";
+
+  // sem os times o toast fica ambíguo fora do contexto do card
+  const placar = document.createElement("div");
+  placar.className = "toast-gol-placar";
+  placar.textContent = `${partida.time_casa} ${partida.placar_casa ?? "-"} x ${partida.placar_fora ?? "-"} ${partida.time_fora}`;
+
+  // mesma linha usada dentro do card, para o toast ler igual ao board
+  const linha = criarEventoItem(evento);
+
+  conteudo.append(placar, linha);
+  return conteudo;
+}
+
+function deslocamentoToast() {
+  // o toast tem que cair logo abaixo do cabeçalho, que muda de altura conforme
+  // a largura da tela (no celular os botões quebram para uma segunda linha).
+  // O Toastify posiciona em top:15px e aplica o offset por cima disso.
+  const header = document.querySelector(".scoreboard-header");
+  if (!header) return 0;
+  return Math.max(0, header.getBoundingClientRect().height + 24 - 15);
+}
+
+function mostrarToastGol(partida, evento) {
+  Toastify({
+    node: criarToastConteudo(partida, evento),
+    duration: DURACAO_TOAST_MS,
+    close: true,
+    gravity: "top",
+    position: "right",
+    stopOnFocus: true,
+    className: "toast-retro",
+    offset: { x: 0, y: deslocamentoToast() },
+  }).showToast();
 }
 
 function tocarAlerta() {
@@ -218,41 +264,81 @@ function criarPartidaCard(partida) {
   return card;
 }
 
-function renderizarGrid(partidas) {
-  const grid = document.getElementById("grid-partidas");
-  grid.replaceChildren();
+function criarCompeticaoTitulo(competicao) {
+  const titulo = document.createElement("h2");
+  titulo.className = "competicao-titulo";
 
-  const partidasFiltradas = apenasAoVivo
-    ? partidas.filter((p) => p.status === "ao_vivo")
-    : partidas;
+  const nome = document.createElement("span");
+  nome.className = "competicao-nome";
+  nome.textContent = competicao.nome;
+  titulo.appendChild(nome);
 
-  if (partidasFiltradas.length === 0) {
+  // pontos corridos trazem a rodada; mata-mata traz a fase (ex: "Oitavas de final")
+  if (competicao.subtitulo) {
+    const fase = document.createElement("span");
+    fase.className = "competicao-fase";
+    fase.textContent = competicao.subtitulo;
+    titulo.appendChild(fase);
+  }
+
+  return titulo;
+}
+
+function criarCompeticaoSecao(competicao, partidas) {
+  const secao = document.createElement("section");
+  secao.className = "competicao";
+  secao.appendChild(criarCompeticaoTitulo(competicao));
+
+  const grid = document.createElement("div");
+  grid.className = "grid-partidas";
+
+  for (const partida of partidas) {
+    grid.appendChild(criarPartidaCard(partida));
+  }
+
+  secao.appendChild(grid);
+  return secao;
+}
+
+function renderizarCompeticoes(competicoes) {
+  const container = document.getElementById("competicoes");
+  container.replaceChildren();
+
+  let algumaPartida = false;
+
+  for (const competicao of competicoes) {
+    const partidas = apenasAoVivo
+      ? (competicao.partidas ?? []).filter((p) => p.status === "ao_vivo")
+      : competicao.partidas ?? [];
+
+    // com o filtro ligado, competição sem jogo ao vivo some inteira em vez de
+    // deixar um cabeçalho órfão
+    if (partidas.length === 0) continue;
+
+    algumaPartida = true;
+    container.appendChild(criarCompeticaoSecao(competicao, partidas));
+  }
+
+  if (!algumaPartida) {
     const vazio = document.createElement("p");
     vazio.className = "grid-vazio";
     vazio.textContent = apenasAoVivo
       ? "Nenhuma partida ao vivo no momento"
       : "Nenhuma partida encontrada";
-    grid.appendChild(vazio);
+    container.appendChild(vazio);
     return;
   }
 
-  for (const partida of partidasFiltradas) {
-    const card = criarPartidaCard(partida);
-    grid.appendChild(card);
-
-    // com o card já no DOM (scrollHeight correto), rola a lista de eventos
-    // pro final, priorizando mostrar os lances mais recentes quando não couber tudo
-    const listaEventos = card.querySelector(".partida-eventos");
-    if (listaEventos) {
-      listaEventos.scrollTop = listaEventos.scrollHeight;
-    }
+  // com os cards já no DOM (scrollHeight correto), rola cada lista de eventos
+  // pro final, priorizando os lances mais recentes quando não couber tudo
+  for (const lista of container.querySelectorAll(".partida-eventos")) {
+    lista.scrollTop = lista.scrollHeight;
   }
 }
 
 function renderizar(dados) {
   dadosAtuais = dados;
-  document.getElementById("rodada-atual").textContent = dados.rodada ? `${dados.rodada}ª RODADA` : "";
-  renderizarGrid(dados.partidas ?? []);
+  renderizarCompeticoes(dados.competicoes ?? []);
 }
 
 function atualizarBotaoFiltro(btn) {
@@ -275,7 +361,7 @@ function inicializarControles() {
   btnFiltro.addEventListener("click", () => {
     apenasAoVivo = !apenasAoVivo;
     atualizarBotaoFiltro(btnFiltro);
-    if (dadosAtuais) renderizarGrid(dadosAtuais.partidas ?? []);
+    if (dadosAtuais) renderizarCompeticoes(dadosAtuais.competicoes ?? []);
   });
 
   btnAlertas.addEventListener("click", () => {

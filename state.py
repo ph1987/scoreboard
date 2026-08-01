@@ -1,4 +1,23 @@
+from datetime import datetime, timedelta, timezone
+
 from odds import encontrar_odds
+
+# as odds que coletamos são do Brasileirão; um mesmo confronto pode acontecer
+# também numa copa, e sem esse recorte a cotação vazaria para o jogo errado
+COMPETICAO_COM_ODDS = "brasileirao"
+
+FUSO_BRASIL = timezone(timedelta(hours=-3))
+
+# a partida só entra no board quando falta no máximo isso para começar
+ANTECEDENCIA_MAXIMA = timedelta(days=1)
+
+# e sai do board esse tanto de tempo depois de terminar
+PERMANENCIA_APOS_FIM = timedelta(hours=1)
+
+# num restart perdemos o registro de quando cada partida terminou, e "agora" viraria
+# o fim de qualquer jogo antigo que ainda apareça na fonte; esse corte evita
+# ressuscitar partidas de dias atrás
+IDADE_MAXIMA_APOS_INICIO = timedelta(hours=6)
 
 
 class MatchState:
@@ -8,6 +27,7 @@ class MatchState:
         self._current = {}
         self._odds_por_casa = []  # lista de listas: uma por casa de apostas, atualizada num ciclo separado
         self._tem_partida_hoje = True  # otimista até o primeiro fetch: evita ficar "preguiçoso" de largada
+        self._encerrado_em = {}  # chave da partida -> quando a vimos encerrada pela 1ª vez
 
     def get_current(self):
         return self._current
@@ -21,6 +41,7 @@ class MatchState:
         Retorna True se algo mudou (novo gol, cartão, etc), False caso contrário.
         """
         self._tem_partida_hoje = new_data.pop("_tem_partida_hoje", True)
+        self._filtrar_visiveis(new_data)
         self._aplicar_odds(new_data)
         changed = new_data != self._current
         if changed:
@@ -31,11 +52,51 @@ class MatchState:
         self._odds_por_casa = odds_por_casa
         self._aplicar_odds(self._current)
 
+    def _filtrar_visiveis(self, dados: dict):
+        agora = datetime.now(FUSO_BRASIL)
+        encerrado_em = {}  # remontado a cada ciclo p/ não crescer indefinidamente
+
+        for competicao in dados.get("competicoes", []):
+            visiveis = []
+            for partida in competicao.get("partidas", []):
+                if self._deve_exibir(competicao, partida, agora, encerrado_em):
+                    visiveis.append(partida)
+            competicao["partidas"] = visiveis
+
+        self._encerrado_em = encerrado_em
+
+    def _deve_exibir(self, competicao: dict, partida: dict, agora, encerrado_em: dict) -> bool:
+        inicio = partida.get("inicio")
+        inicio = datetime.fromisoformat(inicio) if inicio else None
+
+        if partida["status"] == "ao_vivo":
+            return True
+
+        if partida["status"] == "agendado":
+            # sem data confirmada, a partida ainda está longe de acontecer
+            if inicio is None:
+                return False
+            return inicio - agora <= ANTECEDENCIA_MAXIMA
+
+        # encerrada: fica no board por mais um tempo depois do apito final
+        if inicio is not None and agora - inicio > IDADE_MAXIMA_APOS_INICIO:
+            return False
+
+        chave = (competicao["id"], partida["time_casa"], partida["time_fora"], partida.get("inicio"))
+        fim = self._encerrado_em.get(chave, agora)
+        encerrado_em[chave] = fim
+        return agora - fim < PERMANENCIA_APOS_FIM
+
     def _aplicar_odds(self, dados: dict):
-        for partida in dados.get("partidas", []):
-            odds_partida = []
-            for lista_odds in self._odds_por_casa:
-                encontrado = encontrar_odds(partida["time_casa"], partida["time_fora"], lista_odds)
-                if encontrado:
-                    odds_partida.append(encontrado)
-            partida["odds"] = odds_partida
+        for competicao in dados.get("competicoes", []):
+            if competicao.get("id") != COMPETICAO_COM_ODDS:
+                continue
+            for partida in competicao.get("partidas", []):
+                odds_partida = []
+                for lista_odds in self._odds_por_casa:
+                    encontrado = encontrar_odds(
+                        partida["time_casa"], partida["time_fora"], lista_odds
+                    )
+                    if encontrado:
+                        odds_partida.append(encontrado)
+                partida["odds"] = odds_partida

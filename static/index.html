@@ -3,23 +3,21 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Scoreboard - Brasileirão Série A</title>
+  <title>retroplacar.com</title>
   <link rel="icon" type="image/png" href="/favicon.png">
+  <link rel="stylesheet" href="vendor/toastify.css">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <div id="scoreboard">
     <div class="scoreboard-header">
-      <h1>BRASILEIRÃO SÉRIE A</h1>
-      <div class="scoreboard-header-direita">
-        <span id="rodada-atual" class="rodada"></span>
-        <div class="controles">
-          <button id="btn-filtro-ao-vivo" class="botao-controle" type="button">🔴 AO VIVO</button>
-          <button id="btn-alertas" class="botao-controle ativo" type="button" title="Receber alerta sonoro quando houver gol">🔊 ALERTAS</button>
-        </div>
+      <h1 class="titulo-pixel">retroplacar.com</h1>
+      <div class="controles">
+        <button id="btn-filtro-ao-vivo" class="botao-controle" type="button">🔴 AO VIVO</button>
+        <button id="btn-alertas" class="botao-controle ativo" type="button" title="Receber alerta sonoro quando houver gol">🔊 ALERTAS</button>
       </div>
     </div>
-    <div id="grid-partidas" class="grid-partidas">
+    <div id="competicoes">
       <!-- script.js preenche isso dinamicamente -->
     </div>
   </div>
@@ -27,6 +25,7 @@
     desenvolvido por <a href="https://ph1987.github.io/" target="_blank" rel="noopener noreferrer">phldev</a>
   </footer>
   <audio id="som-alerta" src="/uploads/alerta-bolinha-globo.mp3" preload="auto"></audio>
+  <script src="vendor/toastify.js"></script>
   <script src="script.js"></script>
 </body>
 </html>

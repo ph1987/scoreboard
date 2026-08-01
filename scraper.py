@@ -18,7 +18,30 @@ INTERVALO_SEM_JOGO_HOJE_SEGUNDOS = 3 * 60 * 60
 # sempre calculado no horário do Brasil, que não observa horário de verão desde 2019
 FUSO_BRASIL = timezone(timedelta(hours=-3))
 
-URL_RODADA = "https://ge.globo.com/futebol/brasileirao-serie-a/"
+# "id" identifica a competição para o resto do sistema — as odds, por exemplo, só
+# existem para o Brasileirão e não podem vazar para uma copa com os mesmos times
+COMPETICOES = [
+    {
+        "id": "brasileirao",
+        "nome": "Brasileirão Série A",
+        "url": "https://ge.globo.com/futebol/brasileirao-serie-a/",
+    },
+    {
+        "id": "copa-do-brasil",
+        "nome": "Copa do Brasil",
+        "url": "https://ge.globo.com/futebol/copa-do-brasil/",
+    },
+    {
+        "id": "libertadores",
+        "nome": "Libertadores",
+        "url": "https://ge.globo.com/futebol/libertadores/",
+    },
+    {
+        "id": "sul-americana",
+        "nome": "Sul-Americana",
+        "url": "https://ge.globo.com/futebol/copa-sul-americana/",
+    },
+]
 
 HEADERS = {
     "User-Agent": (
@@ -58,13 +81,49 @@ DIAS_SEMANA = {
 }
 
 
-def _data_hora_formatada(data_realizacao: str | None) -> str:
+def _data_hora_formatada(data_realizacao: str | None, hora_realizacao: str | None = None) -> str:
     # times de rodadas futuras às vezes ainda não têm data confirmada pela fonte
     if not data_realizacao:
         return "Data a definir"
     dt = datetime.fromisoformat(data_realizacao)
     dia_semana = DIAS_SEMANA[dt.weekday()]
-    return f"{dia_semana} ({dt.strftime('%d/%m')}) — {dt.strftime('%H:%M')}"
+    # pontos corridos trazem "2026-08-08T16:00"; mata-mata traz só "2026-08-01",
+    # com o horário num campo à parte
+    hora = dt.strftime("%H:%M") if "T" in data_realizacao else (hora_realizacao or "")
+    data = f"{dia_semana} ({dt.strftime('%d/%m')})"
+    return f"{data} — {hora}" if hora else data
+
+
+def _inicio_partida(jogo: dict) -> datetime | None:
+    """Horário de início da partida, com fuso explícito.
+
+    A fonte entrega em dois formatos: pontos corridos já traz a hora junto
+    ("2026-08-08T16:00"), mata-mata traz só a data e a hora num campo à parte.
+    """
+    data_realizacao = jogo.get("data_realizacao")
+    if not data_realizacao:
+        return None
+
+    dt = datetime.fromisoformat(data_realizacao)
+    if "T" not in data_realizacao:
+        hora = jogo.get("hora_realizacao") or ""
+        partes = hora.split(":")
+        if len(partes) >= 2 and partes[0].isdigit() and partes[1].isdigit():
+            dt = dt.replace(hour=int(partes[0]), minute=int(partes[1]))
+
+    return dt.replace(tzinfo=FUSO_BRASIL)
+
+
+# partida em andamento primeiro; depois as que estão por vir, e por último as encerradas
+ORDEM_POR_STATUS = {"ao_vivo": 0, "agendado": 1, "encerrado": 2}
+
+
+def _ordenar_partidas(partidas: list[dict]) -> list[dict]:
+    # "9999" joga as partidas sem data definida para o fim do próprio grupo
+    return sorted(
+        partidas,
+        key=lambda p: (ORDEM_POR_STATUS.get(p["status"], 9), p.get("inicio") or "9999"),
+    )
 
 
 def _tem_partida_hoje(jogos: list[dict]) -> bool:
@@ -84,6 +143,37 @@ def _status_partida(jogo: dict) -> str:
     if broadcast_id in STATUS_POR_BROADCAST:
         return STATUS_POR_BROADCAST[broadcast_id]
     return "agendado"
+
+
+def _nome_fase(dados_competicao: dict) -> str:
+    """Nome da fase atual do mata-mata (ex: "Oitavas de final")."""
+    for fase in dados_competicao.get("fases_navegacao") or []:
+        if fase.get("atual"):
+            return fase.get("nome") or ""
+    return ""
+
+
+def _extrair_jogos(dados_competicao: dict) -> tuple[list[dict], str]:
+    """Retorna (jogos, subtítulo) para os dois formatos que a fonte usa.
+
+    Pontos corridos (Brasileirão) entregam os jogos numa lista plana em
+    "lista_jogos". Mata-mata (Copa do Brasil, Libertadores) deixa "lista_jogos"
+    nulo e espalha os jogos em secao -> chave -> jogos, dois por chave (ida e volta).
+    """
+    jogos = dados_competicao.get("lista_jogos")
+    if jogos:
+        rodada = (dados_competicao.get("rodada") or {}).get("atual")
+        return jogos, f"{rodada}ª rodada" if rodada else ""
+
+    jogos = []
+    for secao in dados_competicao.get("secao") or []:
+        for chave in secao.get("chave") or []:
+            for jogo in chave.get("jogos") or []:
+                # a fonte marca explicitamente os jogos que não devem aparecer
+                if jogo.get("exibir_jogo") is False:
+                    continue
+                jogos.append(jogo)
+    return jogos, _nome_fase(dados_competicao)
 
 
 def _placar_por_eventos(eventos: list[dict], sigla_casa: str, sigla_fora: str) -> tuple[int, int]:
@@ -197,38 +287,25 @@ async def _buscar_eventos_partida(
     return eventos, partida_encerrada
 
 
-async def fetch_dados() -> dict:
-    async with httpx.AsyncClient(follow_redirects=True) as client:
-        resp = await client.get(URL_RODADA, headers=HEADERS, timeout=15)
-        resp.raise_for_status()
-        html = resp.text
+async def _montar_partidas(client: httpx.AsyncClient, jogos: list[dict]) -> list[dict]:
+    tarefas_eventos = []
+    tarefas_escudos = []
+    for jogo in jogos:
+        if jogo.get("jogo_ja_comecou"):
+            url_jogo = jogo["transmissao"]["url"]
+            sigla_casa = jogo["equipes"]["mandante"]["sigla"]
+            sigla_fora = jogo["equipes"]["visitante"]["sigla"]
+            tarefas_eventos.append(
+                _buscar_eventos_partida(client, url_jogo, sigla_casa, sigla_fora)
+            )
+        else:
+            tarefas_eventos.append(asyncio.sleep(0, result=([], False)))
 
-        match = re.search(r"const classificacao = \{", html)
-        if not match:
-            raise ValueError("bloco 'classificacao' não encontrado no HTML")
-        inicio = match.end() - 1
-        dados_rodada = json.loads(extrair_bloco_balanceado(html, inicio))
+        tarefas_escudos.append(_garantir_escudo_local(client, jogo["equipes"]["mandante"]))
+        tarefas_escudos.append(_garantir_escudo_local(client, jogo["equipes"]["visitante"]))
 
-        jogos = dados_rodada["lista_jogos"]
-
-        tarefas_eventos = []
-        tarefas_escudos = []
-        for jogo in jogos:
-            if jogo["jogo_ja_comecou"]:
-                url_jogo = jogo["transmissao"]["url"]
-                sigla_casa = jogo["equipes"]["mandante"]["sigla"]
-                sigla_fora = jogo["equipes"]["visitante"]["sigla"]
-                tarefas_eventos.append(
-                    _buscar_eventos_partida(client, url_jogo, sigla_casa, sigla_fora)
-                )
-            else:
-                tarefas_eventos.append(asyncio.sleep(0, result=([], False)))
-
-            tarefas_escudos.append(_garantir_escudo_local(client, jogo["equipes"]["mandante"]))
-            tarefas_escudos.append(_garantir_escudo_local(client, jogo["equipes"]["visitante"]))
-
-        listas_eventos = await asyncio.gather(*tarefas_eventos, return_exceptions=True)
-        escudos = await asyncio.gather(*tarefas_escudos, return_exceptions=True)
+    listas_eventos = await asyncio.gather(*tarefas_eventos, return_exceptions=True)
+    escudos = await asyncio.gather(*tarefas_escudos, return_exceptions=True)
 
     partidas = []
     for i, (jogo, eventos_resultado) in enumerate(zip(jogos, listas_eventos)):
@@ -245,7 +322,7 @@ async def fetch_dados() -> dict:
         for evento in eventos:
             evento["escudo_time"] = escudo_por_sigla.get(evento["time"])
 
-        if jogo["jogo_ja_comecou"] and eventos_ok:
+        if jogo.get("jogo_ja_comecou") and eventos_ok:
             placar_casa, placar_fora = _placar_por_eventos(eventos, sigla_casa, sigla_fora)
             # o lance a lance é mais confiável que o status "oficial" do resumo da
             # rodada, que às vezes ainda diz "ao vivo" com o jogo já encerrado
@@ -257,6 +334,8 @@ async def fetch_dados() -> dict:
             placar_fora = jogo["placar_oficial_visitante"]
             status = _status_partida(jogo)
 
+        inicio = _inicio_partida(jogo)
+
         partidas.append(
             {
                 "time_casa": jogo["equipes"]["mandante"]["nome_popular"],
@@ -267,15 +346,58 @@ async def fetch_dados() -> dict:
                 "placar_fora": placar_fora,
                 "eventos": eventos,
                 "status": status,
-                "data_hora": _data_hora_formatada(jogo["data_realizacao"]),
+                # o estado usa o início p/ decidir quando a partida entra e sai do board
+                "inicio": inicio.isoformat() if inicio else None,
+                "data_hora": _data_hora_formatada(
+                    jogo.get("data_realizacao"), jogo.get("hora_realizacao")
+                ),
             }
         )
 
+    return _ordenar_partidas(partidas)
+
+
+async def _fetch_competicao(client: httpx.AsyncClient, competicao: dict) -> dict:
+    resp = await client.get(competicao["url"], headers=HEADERS, timeout=15)
+    resp.raise_for_status()
+    html = resp.text
+
+    match = re.search(r"const classificacao = \{", html)
+    if not match:
+        raise ValueError(f"bloco 'classificacao' não encontrado em {competicao['url']}")
+    dados_competicao = json.loads(extrair_bloco_balanceado(html, match.end() - 1))
+
+    jogos, subtitulo = _extrair_jogos(dados_competicao)
+
     return {
-        "rodada": dados_rodada["rodada"]["atual"],
-        "partidas": partidas,
-        "_tem_partida_hoje": _tem_partida_hoje(jogos),
+        "id": competicao["id"],
+        "nome": competicao["nome"],
+        "subtitulo": subtitulo,
+        "partidas": await _montar_partidas(client, jogos),
+        "tem_partida_hoje": _tem_partida_hoje(jogos),
     }
+
+
+async def fetch_dados() -> dict:
+    async with httpx.AsyncClient(follow_redirects=True) as client:
+        resultados = await asyncio.gather(
+            *(_fetch_competicao(client, c) for c in COMPETICOES), return_exceptions=True
+        )
+
+    competicoes = []
+    tem_partida_hoje = False
+    for competicao, resultado in zip(COMPETICOES, resultados):
+        # uma competição fora do ar não pode derrubar as demais
+        if isinstance(resultado, Exception):
+            print(f"Erro ao buscar {competicao['nome']}: {type(resultado).__name__}: {resultado}")
+            continue
+        tem_partida_hoje = tem_partida_hoje or resultado.pop("tem_partida_hoje")
+        competicoes.append(resultado)
+
+    if not competicoes:
+        raise RuntimeError("nenhuma competição pôde ser carregada")
+
+    return {"competicoes": competicoes, "_tem_partida_hoje": tem_partida_hoje}
 
 
 async def scrape_loop(state):

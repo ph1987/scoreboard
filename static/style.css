@@ -3,6 +3,22 @@
   src: local("Courier New");
 }
 
+/* Press Start 2P (OFL), servida localmente em vez do Google Fonts:
+   ~8 KB no total e sem depender de terceiro para a página renderizar */
+@font-face {
+  font-family: "Press Start 2P";
+  src: url("/uploads/fontes/press-start-2p-latin.woff2") format("woff2");
+  font-display: swap;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+2000-206F, U+20AC, U+2122;
+}
+
+@font-face {
+  font-family: "Press Start 2P";
+  src: url("/uploads/fontes/press-start-2p-latin-ext.woff2") format("woff2");
+  font-display: swap;
+  unicode-range: U+0100-02BA, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -84,14 +100,45 @@ body {
   text-shadow: 2px 2px 0 #000;
 }
 
-.scoreboard-header .rodada {
-  font-size: 14px;
-  color: #ffffff;
+/* escopado no cabeçalho p/ vencer a especificidade de ".scoreboard-header h1" */
+.scoreboard-header .titulo-pixel {
+  font-family: "Press Start 2P", "Courier New", monospace;
+  /* a Press Start 2P é bem mais larga que a monoespaçada de fallback:
+     corpo menor e sem tracking extra p/ caber no cabeçalho */
+  font-size: 15px;
+  letter-spacing: 0;
+  text-transform: lowercase;
+  line-height: 1.4;
+  text-shadow: 3px 3px 0 #000;
 }
 
-.scoreboard-header .relogio {
-  font-size: 12px;
+.competicao + .competicao {
+  margin-top: 18px;
+}
+
+.competicao-titulo {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0 0 8px;
+  padding: 6px 10px;
+  border: 2px solid #2f7a4f;
+  background: #063d1f;
+}
+
+.competicao-nome {
+  font-family: "Press Start 2P", "Courier New", monospace;
+  font-size: 11px;
   color: #7fffb0;
+  text-shadow: 2px 2px 0 #000;
+}
+
+.competicao-fase {
+  font-size: 12px;
+  letter-spacing: 1px;
+  color: #7fa98f;
+  text-transform: uppercase;
 }
 
 .grid-partidas {
@@ -287,6 +334,51 @@ body {
   font-weight: bold;
 }
 
+/* o Toastify traz o posicionamento e a animação; a aparência é toda daqui */
+.toastify.toast-retro {
+  font-family: "Courier New", monospace;
+  border: 2px solid #ffd700;
+  background: #063d1f;
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.6);
+  padding: 8px 34px 8px 12px; /* espaço à direita p/ o botão de fechar */
+  max-width: 320px;
+}
+
+.toastify.toast-retro .toast-close {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  opacity: 1;
+  padding: 0 4px;
+  color: #7fa98f;
+  font-size: 16px;
+  line-height: 1;
+  background: none;
+}
+
+.toastify.toast-retro .toast-close:hover {
+  color: #ffffff;
+}
+
+.toast-gol-placar {
+  margin-bottom: 4px;
+  padding-bottom: 4px;
+  border-bottom: 1px dashed #2f7a4f;
+  font-size: 11px;
+  letter-spacing: 0.5px;
+  color: #ffffff;
+}
+
+/* a linha do evento vem do mesmo criarEventoItem() usado no card, que é um <li> */
+.toast-gol li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 12px;
+  list-style: none;
+}
+
 .gol .evento-icone { color: #ffd700; }
 .gol .evento-jogador { color: #ffd700; }
 
@@ -321,4 +413,15 @@ body {
   text-transform: uppercase;
   letter-spacing: 1px;
   font-size: 12px;
+}
+
+/* no celular a fonte pixelada estoura a largura do cabeçalho */
+@media (max-width: 480px) {
+  .scoreboard-header .titulo-pixel {
+    font-size: 11px;
+  }
+
+  .competicao-nome {
+    font-size: 9px;
+  }
 }
