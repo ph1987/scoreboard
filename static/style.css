@@ -369,14 +369,36 @@ body {
   color: #ffffff;
 }
 
-/* a linha do evento vem do mesmo criarEventoItem() usado no card, que é um <li> */
-.toast-gol li {
+.toast-gol-linha {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 6px;
   font-size: 12px;
-  list-style: none;
+}
+
+.toast-gol-texto {
+  flex: 1;
+  color: #ffd700;
+}
+
+.evento-aguardando {
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.spinner-pixel {
+  width: 9px;
+  height: 9px;
+  flex-shrink: 0;
+  margin: 0 4px;
+  border: 2px solid #2f7a4f;
+  border-top-color: #ffd700;
+  /* steps() dá o giro travado de 8 bits em vez do movimento suave */
+  animation: girar-pixel 0.8s steps(8) infinite;
+}
+
+@keyframes girar-pixel {
+  to { transform: rotate(360deg); }
 }
 
 .gol .evento-icone { color: #ffd700; }

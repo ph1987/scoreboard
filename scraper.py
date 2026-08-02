@@ -177,11 +177,32 @@ def _extrair_jogos(dados_competicao: dict) -> tuple[list[dict], str]:
 
 
 def _placar_por_eventos(eventos: list[dict], sigla_casa: str, sigla_fora: str) -> tuple[int, int]:
-    """Conta os gols na própria lista de eventos (já ajustada p/ gol contra) em vez de
-    confiar no placar 'oficial' do resumo da rodada, que atualiza com defasagem em
-    relação ao lance a lance e pode ficar dessincronizado por alguns ciclos."""
+    """Conta os gols na própria lista de eventos, já ajustada para gol contra."""
     gols_casa = sum(1 for e in eventos if e["tipo"] == "gol" and e["time"] == sigla_casa)
     gols_fora = sum(1 for e in eventos if e["tipo"] == "gol" and e["time"] == sigla_fora)
+    return gols_casa, gols_fora
+
+
+def _placar_combinado(
+    eventos: list[dict], jogo: dict, sigla_casa: str, sigla_fora: str
+) -> tuple[int, int]:
+    """Junta as duas fontes de placar ficando com o maior de cada lado.
+
+    Elas se atrasam em direções opostas e não dá para eleger uma vencedora:
+    o resumo da rodada às vezes ainda não registrou o gol que o lance a lance já
+    publicou, e o lance a lance às vezes ainda não publicou o gol que o resumo já
+    contabilizou. O maior valor é sempre o mais atualizado dos dois.
+    """
+    gols_casa, gols_fora = _placar_por_eventos(eventos, sigla_casa, sigla_fora)
+
+    oficial_casa = jogo.get("placar_oficial_mandante")
+    oficial_fora = jogo.get("placar_oficial_visitante")
+
+    if oficial_casa is not None:
+        gols_casa = max(gols_casa, oficial_casa)
+    if oficial_fora is not None:
+        gols_fora = max(gols_fora, oficial_fora)
+
     return gols_casa, gols_fora
 
 
@@ -323,7 +344,7 @@ async def _montar_partidas(client: httpx.AsyncClient, jogos: list[dict]) -> list
             evento["escudo_time"] = escudo_por_sigla.get(evento["time"])
 
         if jogo.get("jogo_ja_comecou") and eventos_ok:
-            placar_casa, placar_fora = _placar_por_eventos(eventos, sigla_casa, sigla_fora)
+            placar_casa, placar_fora = _placar_combinado(eventos, jogo, sigla_casa, sigla_fora)
             # o lance a lance é mais confiável que o status "oficial" do resumo da
             # rodada, que às vezes ainda diz "ao vivo" com o jogo já encerrado
             status = "encerrado" if partida_encerrada else "ao_vivo"

@@ -15,7 +15,7 @@ const LABEL_STATUS = {
 
 let apenasAoVivo = false;
 let alertasAtivos = lerPreferenciaAlertas();
-let eventosVistos = null; // null = ainda não carregou nenhum dado (evita alertar na primeira carga)
+let placaresVistos = null; // null = ainda não carregou nenhum dado (evita alertar na primeira carga)
 let dadosAtuais = null;
 
 function lerCookie(nome) {
@@ -48,51 +48,73 @@ async function atualizarPlacar() {
   }
 }
 
-function chaveEvento(competicao, partida, evento) {
+function chavePartida(competicao, partida) {
   // o mesmo confronto pode acontecer em duas competições (ex: Fluminense x Vasco
   // no Brasileirão e na Copa do Brasil), então a chave precisa da competição
-  return [competicao.id, partida.time_casa, partida.time_fora, evento.tipo, evento.time, evento.minuto, evento.jogador].join("|");
+  return [competicao.id, partida.time_casa, partida.time_fora].join("|");
 }
 
 function notificarNovidades(dados) {
-  const chavesAtuais = new Set();
+  const placaresAtuais = new Map();
   const golsNovos = [];
 
   for (const competicao of dados.competicoes ?? []) {
     for (const partida of competicao.partidas ?? []) {
-      for (const evento of partida.eventos ?? []) {
-        const chave = chaveEvento(competicao, partida, evento);
-        chavesAtuais.add(chave);
-        // cartão vermelho continua aparecendo na partida, mas só gol notifica
-        if (eventosVistos !== null && !eventosVistos.has(chave) && evento.tipo === "gol") {
-          golsNovos.push({ partida, evento });
-        }
+      const chave = chavePartida(competicao, partida);
+      const casa = partida.placar_casa ?? 0;
+      const fora = partida.placar_fora ?? 0;
+      placaresAtuais.set(chave, { casa, fora });
+
+      // o placar sobe assim que qualquer uma das duas fontes registra o gol,
+      // enquanto o lance a lance (com jogador e minuto) costuma demorar mais.
+      // Notificar pelo placar deixa o alerta bem mais rápido.
+      const anterior = placaresVistos?.get(chave);
+      if (!anterior) continue;
+
+      // gol anulado pelo VAR faz o placar cair; só subida vira notificação
+      if (casa > anterior.casa) {
+        golsNovos.push({ partida, time: partida.time_casa, escudo: partida.escudo_casa });
+      }
+      if (fora > anterior.fora) {
+        golsNovos.push({ partida, time: partida.time_fora, escudo: partida.escudo_fora });
       }
     }
   }
 
   if (golsNovos.length > 0 && alertasAtivos) {
     tocarAlerta();
-    for (const { partida, evento } of golsNovos) {
-      mostrarToastGol(partida, evento);
+    for (const gol of golsNovos) {
+      mostrarToastGol(gol.partida, gol.time, gol.escudo);
     }
   }
 
-  eventosVistos = chavesAtuais;
+  placaresVistos = placaresAtuais;
 }
 
-function criarToastConteudo(partida, evento) {
+function criarToastConteudo(partida, time, escudo) {
   const conteudo = document.createElement("div");
   conteudo.className = "toast-gol";
 
-  // sem os times o toast fica ambíguo fora do contexto do card
   const placar = document.createElement("div");
   placar.className = "toast-gol-placar";
-  placar.textContent = `${partida.time_casa} ${partida.placar_casa ?? "-"} x ${partida.placar_fora ?? "-"} ${partida.time_fora}`;
+  placar.textContent = `${partida.time_casa} ${partida.placar_casa ?? 0} x ${partida.placar_fora ?? 0} ${partida.time_fora}`;
 
-  // mesma linha usada dentro do card, para o toast ler igual ao board
-  const linha = criarEventoItem(evento);
+  // sem jogador nem minuto de propósito: eles só chegam com o lance a lance,
+  // e esperar por eles atrasaria o alerta
+  const linha = document.createElement("div");
+  linha.className = "toast-gol-linha";
 
+  const icone = document.createElement("span");
+  icone.className = "evento-icone";
+  icone.textContent = ICONE_EVENTO.gol;
+
+  const texto = document.createElement("span");
+  texto.className = "toast-gol-texto";
+  texto.textContent = `Gol do ${time}`;
+
+  const img = criarEscudo(escudo, time, "evento-escudo");
+
+  linha.append(icone, texto, ...(img ? [img] : []));
   conteudo.append(placar, linha);
   return conteudo;
 }
@@ -106,9 +128,9 @@ function deslocamentoToast() {
   return Math.max(0, header.getBoundingClientRect().height + 24 - 15);
 }
 
-function mostrarToastGol(partida, evento) {
+function mostrarToastGol(partida, time, escudo) {
   Toastify({
-    node: criarToastConteudo(partida, evento),
+    node: criarToastConteudo(partida, time, escudo),
     duration: DURACAO_TOAST_MS,
     close: true,
     gravity: "top",
@@ -156,6 +178,29 @@ function criarEventoItem(evento) {
   minuto.textContent = evento.minuto ?? "";
 
   li.append(icone, jogador, ...(escudo ? [escudo] : []), minuto);
+  return li;
+}
+
+function faltaLanceDoGol(partida) {
+  // o placar vem de duas fontes e sobe antes do lance a lance publicar o gol;
+  // enquanto houver gol no placar sem evento correspondente, a partida está
+  // esperando o detalhe (jogador e minuto) chegar
+  if (partida.status !== "ao_vivo") return false;
+  const golsNoPlacar = (partida.placar_casa ?? 0) + (partida.placar_fora ?? 0);
+  const golsNarrados = (partida.eventos ?? []).filter((e) => e.tipo === "gol").length;
+  return golsNarrados < golsNoPlacar;
+}
+
+function criarItemAguardando() {
+  const li = document.createElement("li");
+  li.className = "evento-aguardando";
+  // sem rótulo: o giro já comunica que falta o lance chegar
+  li.setAttribute("aria-label", "aguardando o lance do gol");
+
+  const spinner = document.createElement("span");
+  spinner.className = "spinner-pixel";
+
+  li.appendChild(spinner);
   return li;
 }
 
@@ -243,11 +288,17 @@ function criarPartidaCard(partida) {
       : LABEL_STATUS[partida.status] ?? partida.status;
   card.appendChild(status);
 
-  if (partida.eventos && partida.eventos.length > 0) {
+  const eventos = partida.eventos ?? [];
+  const aguardandoLance = faltaLanceDoGol(partida);
+
+  if (eventos.length > 0 || aguardandoLance) {
     const listaEventos = document.createElement("ul");
     listaEventos.className = "partida-eventos";
-    for (const evento of partida.eventos) {
+    for (const evento of eventos) {
       listaEventos.appendChild(criarEventoItem(evento));
+    }
+    if (aguardandoLance) {
+      listaEventos.appendChild(criarItemAguardando());
     }
     card.appendChild(listaEventos);
   }
