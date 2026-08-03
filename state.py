@@ -19,6 +19,11 @@ PERMANENCIA_APOS_FIM = timedelta(hours=1)
 # ressuscitar partidas de dias atrás
 IDADE_MAXIMA_APOS_INICIO = timedelta(hours=6)
 
+# por quanto tempo seguramos os últimos dados bons de uma competição que falhou.
+# Sem isso, um erro momentâneo numa competição some com ela do board até a próxima
+# coleta bem-sucedida -- e se ela for a única com jogos, o board fica vazio.
+TOLERANCIA_COMPETICAO_FORA = timedelta(minutes=10)
+
 
 class MatchState:
     """Guarda o snapshot mais recente das partidas em memória."""
@@ -28,6 +33,8 @@ class MatchState:
         self._odds_por_casa = []  # lista de listas: uma por casa de apostas, atualizada num ciclo separado
         self._tem_partida_hoje = True  # otimista até o primeiro fetch: evita ficar "preguiçoso" de largada
         self._encerrado_em = {}  # chave da partida -> quando a vimos encerrada pela 1ª vez
+        self._ultima_competicao = {}  # id -> (dados, quando vieram)
+        self._ordem_competicoes = []  # ids na ordem em que a fonte entrega
 
     def get_current(self):
         return self._current
@@ -41,6 +48,7 @@ class MatchState:
         Retorna True se algo mudou (novo gol, cartão, etc), False caso contrário.
         """
         self._tem_partida_hoje = new_data.pop("_tem_partida_hoje", True)
+        self._completar_competicoes_ausentes(new_data)
         self._filtrar_visiveis(new_data)
         self._aplicar_odds(new_data)
         changed = new_data != self._current
@@ -51,6 +59,33 @@ class MatchState:
     def update_odds(self, odds_por_casa: list[list[dict]]):
         self._odds_por_casa = odds_por_casa
         self._aplicar_odds(self._current)
+
+    def _completar_competicoes_ausentes(self, dados: dict):
+        """Repõe as competições que falharam na coleta com os últimos dados bons.
+
+        O scraper omite a competição que deu erro, e como o snapshot é substituído
+        inteiro, uma falha de um ciclo apagaria o que já estava no ar. Guardamos o
+        último resultado por um tempo curto: o suficiente para atravessar uma falha
+        passageira, e curto o bastante para não exibir placar velho indefinidamente.
+        """
+        agora = datetime.now(FUSO_BRASIL)
+        recebidas = {c["id"]: c for c in dados.get("competicoes", [])}
+
+        for id_competicao, competicao in recebidas.items():
+            if id_competicao not in self._ordem_competicoes:
+                self._ordem_competicoes.append(id_competicao)
+            self._ultima_competicao[id_competicao] = (competicao, agora)
+
+        completas = []
+        for id_competicao in self._ordem_competicoes:
+            if id_competicao in recebidas:
+                completas.append(recebidas[id_competicao])
+                continue
+            guardada = self._ultima_competicao.get(id_competicao)
+            if guardada and agora - guardada[1] <= TOLERANCIA_COMPETICAO_FORA:
+                completas.append(guardada[0])
+
+        dados["competicoes"] = completas
 
     def _filtrar_visiveis(self, dados: dict):
         agora = datetime.now(FUSO_BRASIL)

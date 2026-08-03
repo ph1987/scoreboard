@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import re
+import traceback
 from datetime import datetime, timedelta, timezone
 
 import httpx
@@ -312,8 +313,11 @@ async def _montar_partidas(client: httpx.AsyncClient, jogos: list[dict]) -> list
     tarefas_eventos = []
     tarefas_escudos = []
     for jogo in jogos:
-        if jogo.get("jogo_ja_comecou"):
-            url_jogo = jogo["transmissao"]["url"]
+        # no minuto em que a partida começa a fonte já marca "jogo_ja_comecou"
+        # mas às vezes ainda não publicou a transmissão; sem essa guarda o
+        # acesso direto estoura e derruba a competição inteira
+        url_jogo = (jogo.get("transmissao") or {}).get("url")
+        if jogo.get("jogo_ja_comecou") and url_jogo:
             sigla_casa = jogo["equipes"]["mandante"]["sigla"]
             sigla_fora = jogo["equipes"]["visitante"]["sigla"]
             tarefas_eventos.append(
@@ -410,7 +414,11 @@ async def fetch_dados() -> dict:
     for competicao, resultado in zip(COMPETICOES, resultados):
         # uma competição fora do ar não pode derrubar as demais
         if isinstance(resultado, Exception):
-            print(f"Erro ao buscar {competicao['nome']}: {type(resultado).__name__}: {resultado}")
+            # com o traceback dá pra achar a linha; só o tipo do erro não diz nada
+            print(f"Erro ao buscar {competicao['nome']}:")
+            traceback.print_exception(
+                type(resultado), resultado, resultado.__traceback__
+            )
             continue
         tem_partida_hoje = tem_partida_hoje or resultado.pop("tem_partida_hoje")
         competicoes.append(resultado)
