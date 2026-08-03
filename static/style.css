@@ -38,6 +38,12 @@ body {
   margin: 0;
   padding: 16px;
   min-height: 100vh;
+  /* dvh acompanha a barra de endereço do navegador no celular, onde 100vh
+     estoura a tela; quem não suporta fica com o 100vh acima */
+  min-height: 100dvh;
+  /* coluna flex p/ o rodapé poder ser empurrado para o fim da página */
+  display: flex;
+  flex-direction: column;
 }
 
 #scoreboard {
@@ -409,8 +415,11 @@ body {
 
 .rodape {
   max-width: 900px;
-  margin: 12px auto 0;
-  padding: 4px 16px;
+  width: 100%;
+  /* margin-top auto absorve a sobra de espaço e prende o rodapé no fim da
+     página, mesmo com o board vazio; "auto" nas laterais mantém centralizado */
+  margin: auto auto 0;
+  padding: 12px 16px 4px;
   font-size: 10px;
   letter-spacing: 0.5px;
   color: #7fa98f;
