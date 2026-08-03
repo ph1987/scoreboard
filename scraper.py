@@ -394,6 +394,15 @@ async def _fetch_competicao(client: httpx.AsyncClient, competicao: dict) -> dict
 
     jogos, subtitulo = _extrair_jogos(dados_competicao)
 
+    if not jogos:
+        # a fonte respondeu, mas não veio jogo nenhum: costuma ser troca de fase
+        # (a nova ainda sem confrontos definidos) ou mudança no formato do bloco
+        fase = (dados_competicao.get("fase") or {}).get("slug")
+        print(
+            f"Aviso: {competicao['nome']} veio sem jogos "
+            f"(fase={fase!r}, subtitulo={subtitulo!r})"
+        )
+
     return {
         "id": competicao["id"],
         "nome": competicao["nome"],

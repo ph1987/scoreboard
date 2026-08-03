@@ -90,15 +90,26 @@ class MatchState:
     def _filtrar_visiveis(self, dados: dict):
         agora = datetime.now(FUSO_BRASIL)
         encerrado_em = {}  # remontado a cada ciclo p/ não crescer indefinidamente
+        diagnostico = []
 
         for competicao in dados.get("competicoes", []):
             visiveis = []
             for partida in competicao.get("partidas", []):
                 if self._deve_exibir(competicao, partida, agora, encerrado_em):
                     visiveis.append(partida)
+            diagnostico.append(
+                f"{competicao['id']}[{competicao.get('subtitulo')!r}]"
+                f" {len(visiveis)}/{len(competicao.get('partidas', []))}"
+            )
             competicao["partidas"] = visiveis
 
         self._encerrado_em = encerrado_em
+
+        # board totalmente vazio é o sintoma que o usuário enxerga como "nenhuma
+        # partida encontrada"; registrar o que chegou vs. o que passou no filtro
+        # é o que permite distinguir falha de coleta de exclusão pela janela
+        if not any(c["partidas"] for c in dados.get("competicoes", [])):
+            print(f"Board vazio em {agora.isoformat()} | recebido: {' '.join(diagnostico)}")
 
     def _deve_exibir(self, competicao: dict, partida: dict, agora, encerrado_em: dict) -> bool:
         inicio = partida.get("inicio")
