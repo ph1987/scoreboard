@@ -1,5 +1,4 @@
 const INTERVALO_MS = 30000;
-const CHAVE_COOKIE_ALERTAS = "scoreboard_alertas_ativos";
 const DURACAO_TOAST_MS = 60000;
 
 const ICONE_EVENTO = {
@@ -14,26 +13,13 @@ const LABEL_STATUS = {
 };
 
 let apenasAoVivo = false;
-let alertasAtivos = lerPreferenciaAlertas();
+// sempre desligado ao carregar, sem persistir a escolha: a autorização do
+// navegador para tocar áudio vale só para a sessão da página, então guardar
+// "ligado" faria o botão mentir depois de um refresh -- apareceria ativo mas o
+// som seria bloqueado em silêncio. Ligar de novo é o clique que libera o áudio.
+let alertasAtivos = false;
 let placaresVistos = null; // null = ainda não carregou nenhum dado (evita alertar na primeira carga)
 let dadosAtuais = null;
-
-function lerCookie(nome) {
-  const match = document.cookie.match(new RegExp("(?:^|; )" + nome + "=([^;]*)"));
-  return match ? decodeURIComponent(match[1]) : null;
-}
-
-function escreverCookie(nome, valor, dias) {
-  const expira = new Date(Date.now() + dias * 24 * 60 * 60 * 1000).toUTCString();
-  document.cookie = `${nome}=${encodeURIComponent(valor)}; expires=${expira}; path=/; SameSite=Lax`;
-}
-
-function lerPreferenciaAlertas() {
-  // desligado por padrão: o navegador só libera áudio depois de uma interação,
-  // então o alerta precisa nascer de um clique para realmente tocar
-  const valor = lerCookie(CHAVE_COOKIE_ALERTAS);
-  return valor === "1";
-}
 
 async function atualizarPlacar() {
   try {
@@ -440,7 +426,6 @@ function inicializarControles() {
 
   btnAlertas.addEventListener("click", () => {
     alertasAtivos = !alertasAtivos;
-    escreverCookie(CHAVE_COOKIE_ALERTAS, alertasAtivos ? "1" : "0", 365);
     atualizarBotaoAlertas(btnAlertas);
     // precisa ser aqui dentro: a autorização vale para o gesto do clique
     if (alertasAtivos) liberarAudio();
