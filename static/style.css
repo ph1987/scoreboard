@@ -47,6 +47,9 @@ body {
 }
 
 #scoreboard {
+  /* como item flex do body, a margem "auto" cancela o stretch e faria o bloco
+     encolher até o conteúdo; o width devolve a largura cheia até o max-width */
+  width: 100%;
   max-width: 900px;
   margin: 0 auto;
 }

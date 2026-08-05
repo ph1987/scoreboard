@@ -29,8 +29,10 @@ function escreverCookie(nome, valor, dias) {
 }
 
 function lerPreferenciaAlertas() {
+  // desligado por padrão: o navegador só libera áudio depois de uma interação,
+  // então o alerta precisa nascer de um clique para realmente tocar
   const valor = lerCookie(CHAVE_COOKIE_ALERTAS);
-  return valor === null ? true : valor === "1";
+  return valor === "1";
 }
 
 async function atualizarPlacar() {
@@ -134,7 +136,7 @@ function mostrarToastGol(partida, time, escudo) {
     duration: DURACAO_TOAST_MS,
     close: true,
     gravity: "top",
-    position: "right",
+    position: "center",
     stopOnFocus: true,
     className: "toast-retro",
     offset: { x: 0, y: deslocamentoToast() },
@@ -147,6 +149,24 @@ function tocarAlerta() {
   audio.play().catch(() => {
     // navegador pode bloquear autoplay antes de interação do usuário
   });
+}
+
+function liberarAudio() {
+  // o navegador só autoriza play() programático depois de uma interação do
+  // usuário. Tocar mudo dentro do próprio clique registra essa autorização,
+  // senão o primeiro gol tentaria tocar e seria bloqueado silenciosamente.
+  const audio = document.getElementById("som-alerta");
+  audio.muted = true;
+  audio
+    .play()
+    .then(() => {
+      audio.pause();
+      audio.currentTime = 0;
+    })
+    .catch(() => {})
+    .finally(() => {
+      audio.muted = false;
+    });
 }
 
 function criarEscudo(url, alt, className) {
@@ -400,6 +420,9 @@ function atualizarBotaoFiltro(btn) {
 function atualizarBotaoAlertas(btn) {
   btn.textContent = `${alertasAtivos ? "🔊" : "🔇"} ALERTAS`;
   btn.classList.toggle("ativo", alertasAtivos);
+  btn.title = alertasAtivos
+    ? "Desativar aviso de gol (som e notificação na tela)"
+    : "Ativar aviso de gol (som e notificação na tela)";
 }
 
 function inicializarControles() {
@@ -419,6 +442,8 @@ function inicializarControles() {
     alertasAtivos = !alertasAtivos;
     escreverCookie(CHAVE_COOKIE_ALERTAS, alertasAtivos ? "1" : "0", 365);
     atualizarBotaoAlertas(btnAlertas);
+    // precisa ser aqui dentro: a autorização vale para o gesto do clique
+    if (alertasAtivos) liberarAudio();
   });
 }
 
