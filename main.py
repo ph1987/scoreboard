@@ -35,11 +35,34 @@ app.add_middleware(GZipMiddleware, minimum_size=500)
 
 state = MatchState()
 
+# sem guardar a referência o garbage collector pode recolher a task, e uma
+# exceção que escape do loop morreria em silêncio -- a API seguiria servindo o
+# último snapshot para sempre, que foi exatamente o que aconteceu em produção
+_tarefas = set()
+
+
+def _supervisionar(coro, nome: str):
+    tarefa = asyncio.create_task(coro, name=nome)
+    _tarefas.add(tarefa)
+
+    def ao_terminar(t: asyncio.Task):
+        _tarefas.discard(t)
+        if t.cancelled():
+            print(f"Loop '{nome}' foi cancelado")
+            return
+        erro = t.exception()
+        # o loop é infinito: terminar já é anormal, com ou sem exceção
+        print(f"Loop '{nome}' terminou inesperadamente: {erro!r}")
+
+    tarefa.add_done_callback(ao_terminar)
+    return tarefa
+
+
 @app.on_event("startup")
 async def startup_event():
     # dispara o scraper e o buscador de odds rodando em background, sem bloquear a API
-    asyncio.create_task(scrape_loop(state))
-    asyncio.create_task(odds_loop(state))
+    _supervisionar(scrape_loop(state), "scrape")
+    _supervisionar(odds_loop(state), "odds")
 
 @app.get("/api/partidas")
 async def get_partidas():

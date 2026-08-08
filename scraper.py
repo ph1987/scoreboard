@@ -15,6 +15,9 @@ INTERVALO_SEGUNDOS = 30
 # sem nenhuma partida hoje, não há por que ficar batendo na fonte a cada 30s
 INTERVALO_SEM_JOGO_HOJE_SEGUNDOS = 3 * 60 * 60
 
+# teto para um ciclo inteiro de coleta (todas as competições e seus lances)
+TIMEOUT_CICLO_SEGUNDOS = 120
+
 # o servidor pode rodar em outro fuso (ex: deploy na Europa); "hoje" precisa ser
 # sempre calculado no horário do Brasil, que não observa horário de verão desde 2019
 FUSO_BRASIL = timezone(timedelta(hours=-3))
@@ -442,9 +445,14 @@ async def scrape_loop(state):
     while True:
         intervalo = INTERVALO_SEGUNDOS
         try:
-            dados = await fetch_dados()
+            # cada requisição já tem timeout, mas são dezenas por ciclo: sem um teto
+            # para o ciclo inteiro, uma sequência lenta trava o loop e a API passa a
+            # servir um snapshot velho indefinidamente
+            dados = await asyncio.wait_for(fetch_dados(), timeout=TIMEOUT_CICLO_SEGUNDOS)
             state.update(dados)
             intervalo = INTERVALO_SEGUNDOS if state.tem_partida_hoje() else INTERVALO_SEM_JOGO_HOJE_SEGUNDOS
+        except asyncio.TimeoutError:
+            print(f"Ciclo de coleta passou de {TIMEOUT_CICLO_SEGUNDOS}s e foi abortado")
         except Exception as e:
-            print(f"Erro ao buscar dados: {e}")
+            print(f"Erro ao buscar dados: {type(e).__name__}: {e}")
         await asyncio.sleep(intervalo)

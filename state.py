@@ -1,3 +1,4 @@
+from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 
 from odds import encontrar_odds
@@ -35,9 +36,14 @@ class MatchState:
         self._encerrado_em = {}  # chave da partida -> quando a vimos encerrada pela 1ª vez
         self._ultima_competicao = {}  # id -> (dados, quando vieram)
         self._ordem_competicoes = []  # ids na ordem em que a fonte entrega
+        self._atualizado_em = None  # quando a última coleta bem-sucedida terminou
 
     def get_current(self):
-        return self._current
+        if not self._current:
+            return {}
+        # expõe a idade do snapshot: sem isso, um loop de coleta parado é
+        # indistinguível de um jogo sem lance novo, visto de fora
+        return {**self._current, "atualizado_em": self._atualizado_em.isoformat()}
 
     def tem_partida_hoje(self) -> bool:
         return self._tem_partida_hoje
@@ -51,6 +57,7 @@ class MatchState:
         self._completar_competicoes_ausentes(new_data)
         self._filtrar_visiveis(new_data)
         self._aplicar_odds(new_data)
+        self._atualizado_em = datetime.now(FUSO_BRASIL)
         changed = new_data != self._current
         if changed:
             self._current = new_data
@@ -74,7 +81,9 @@ class MatchState:
         for id_competicao, competicao in recebidas.items():
             if id_competicao not in self._ordem_competicoes:
                 self._ordem_competicoes.append(id_competicao)
-            self._ultima_competicao[id_competicao] = (competicao, agora)
+            # cópia porque o filtro de visibilidade altera "partidas" no lugar;
+            # sem isso o guardado encolheria a cada ciclo em que fosse reposto
+            self._ultima_competicao[id_competicao] = (deepcopy(competicao), agora)
 
         completas = []
         for id_competicao in self._ordem_competicoes:
@@ -83,7 +92,7 @@ class MatchState:
                 continue
             guardada = self._ultima_competicao.get(id_competicao)
             if guardada and agora - guardada[1] <= TOLERANCIA_COMPETICAO_FORA:
-                completas.append(guardada[0])
+                completas.append(deepcopy(guardada[0]))
 
         dados["competicoes"] = completas
 
