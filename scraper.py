@@ -143,7 +143,15 @@ def _status_partida(jogo: dict) -> str:
     transmissao = jogo.get("transmissao")
     if not transmissao:
         return "agendado"
+
     broadcast_id = transmissao["broadcast"]["id"]
+
+    # "LIVE" diz que a transmissão do ge.globo está no ar, não que a bola rolou:
+    # a cobertura pré-jogo entra cerca de uma hora antes. Quem sabe se a partida
+    # começou é o "jogo_ja_comecou".
+    if broadcast_id == "LIVE" and not jogo.get("jogo_ja_comecou"):
+        return "agendado"
+
     if broadcast_id in STATUS_POR_BROADCAST:
         return STATUS_POR_BROADCAST[broadcast_id]
     return "agendado"
