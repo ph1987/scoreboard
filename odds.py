@@ -15,8 +15,18 @@ ODDS_INTERVALO_SEGUNDOS = 10 * 60
 # sem partida hoje, as odds também podem esperar (mesmo sinal usado pelo scraper do placar)
 ODDS_INTERVALO_SEM_JOGO_HOJE_SEGUNDOS = 3 * 60 * 60
 
-URL_BETANO = "https://www.betano.bet.br/sport/futebol/brasil/brasileirao-serie-a-betano/10016/"
+COMPETICOES_BETANO = {
+    "brasileirao": "https://www.betano.bet.br/sport/futebol/brasil/brasileirao-serie-a-betano/10016/",
+    "copa-do-brasil": "https://www.betano.bet.br/sport/futebol/brasil/copa-betano-do-brasil/10008/",
+    "libertadores": "https://www.betano.bet.br/sport/futebol/copa-libertadores/copa-libertadores/436g/",
+    "sul-americana": "https://www.betano.bet.br/sport/futebol/copa-sul-americana/copa-sul-americana/435g/",
+}
+
+# a Betnacional migrou Libertadores e Sul-Americana (e não tem Copa do Brasil em destaque)
+# pra um formato que busca os jogos via API depois do carregamento — sem HTML pra extrair,
+# diferente do resto. Por ora ela continua cobrindo só o Brasileirão mesmo.
 URL_BETNACIONAL = "https://betnacional.bet.br/apostas-brasileirao-serie-a"
+NOME_TORNEIO_BETNACIONAL = "Brasileirão Série A"
 
 HEADERS = {
     "User-Agent": (
@@ -42,9 +52,9 @@ def _mesmo_time(nome_a: str, nome_b: str) -> bool:
     return bool(intersecao) and len(intersecao) / min(len(palavras_a), len(palavras_b)) >= 0.5
 
 
-async def _fetch_odds_betano() -> list[dict]:
+async def _fetch_odds_betano(competicao_id: str, url: str) -> list[dict]:
     async with httpx.AsyncClient(follow_redirects=True, timeout=15) as client:
-        resp = await client.get(URL_BETANO, headers=HEADERS)
+        resp = await client.get(url, headers=HEADERS)
         resp.raise_for_status()
         html = resp.text
 
@@ -69,6 +79,7 @@ async def _fetch_odds_betano() -> list[dict]:
 
         odds.append(
             {
+                "competicao_id": competicao_id,
                 "time_casa": participantes[0]["name"],
                 "time_fora": participantes[1]["name"],
                 "casa": precos["1"],
@@ -106,7 +117,7 @@ async def _fetch_odds_betnacional() -> list[dict]:
     for evento_id, evento in eventos.items():
         if evento.get("type") != "prematch":
             continue
-        if evento.get("tournament", {}).get("name") != "Brasileirão Série A":
+        if evento.get("tournament", {}).get("name") != NOME_TORNEIO_BETNACIONAL:
             continue
         home = evento.get("home")
         away = evento.get("away")
@@ -127,6 +138,7 @@ async def _fetch_odds_betnacional() -> list[dict]:
 
         odds.append(
             {
+                "competicao_id": "brasileirao",
                 "time_casa": home["name"],
                 "time_fora": away["name"],
                 "casa": precos[home["name"]],
@@ -139,21 +151,20 @@ async def _fetch_odds_betnacional() -> list[dict]:
     return odds
 
 
-FONTES_ODDS = {
-    "Betano": _fetch_odds_betano,
-    "Betnacional": _fetch_odds_betnacional,
-}
-
-
 async def fetch_odds() -> list[list[dict]]:
-    """Busca as odds de cada casa em paralelo. Retorna uma lista por casa,
+    """Busca as odds de cada fonte em paralelo. Retorna uma lista por fonte,
     pra que uma fonte fora do ar não derrube as demais."""
-    resultados = await asyncio.gather(
-        *(fonte() for fonte in FONTES_ODDS.values()), return_exceptions=True
-    )
+    nomes = [f"Betano ({competicao_id})" for competicao_id in COMPETICOES_BETANO]
+    tarefas = [
+        _fetch_odds_betano(competicao_id, url) for competicao_id, url in COMPETICOES_BETANO.items()
+    ]
+    nomes.append("Betnacional")
+    tarefas.append(_fetch_odds_betnacional())
+
+    resultados = await asyncio.gather(*tarefas, return_exceptions=True)
 
     listas = []
-    for nome, resultado in zip(FONTES_ODDS.keys(), resultados):
+    for nome, resultado in zip(nomes, resultados):
         if isinstance(resultado, Exception):
             print(f"Erro ao buscar odds da {nome}: {type(resultado).__name__}: {resultado}")
             listas.append([])
@@ -162,8 +173,14 @@ async def fetch_odds() -> list[list[dict]]:
     return listas
 
 
-def encontrar_odds(time_casa: str, time_fora: str, lista_odds: list[dict]) -> dict | None:
+def encontrar_odds(
+    competicao_id: str, time_casa: str, time_fora: str, lista_odds: list[dict]
+) -> dict | None:
     for item in lista_odds:
+        # times que jogam a mesma competição do adversário nesta rodada podem se repetir
+        # noutra copa na mesma semana — sem esse filtro a odd vazaria pro jogo errado
+        if item["competicao_id"] != competicao_id:
+            continue
         if _mesmo_time(item["time_casa"], time_casa) and _mesmo_time(item["time_fora"], time_fora):
             return {
                 "casa": item["casa"],

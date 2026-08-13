@@ -1,11 +1,12 @@
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 
-from odds import encontrar_odds
+from odds import COMPETICOES_BETANO, encontrar_odds
 
-# as odds que coletamos são do Brasileirão; um mesmo confronto pode acontecer
-# também numa copa, e sem esse recorte a cotação vazaria para o jogo errado
-COMPETICAO_COM_ODDS = "brasileirao"
+# competições com odds coletadas — hoje é o que a Betano cobre. Times em comum entre essas
+# competições na mesma semana (ex: Palmeiras jogando Brasileirão e Libertadores) só recebem
+# a cotação certa porque encontrar_odds recebe o id da competição e cada odd carrega o seu
+COMPETICOES_COM_ODDS = set(COMPETICOES_BETANO)
 
 FUSO_BRASIL = timezone(timedelta(hours=-3))
 
@@ -144,13 +145,13 @@ class MatchState:
 
     def _aplicar_odds(self, dados: dict):
         for competicao in dados.get("competicoes", []):
-            if competicao.get("id") != COMPETICAO_COM_ODDS:
+            if competicao.get("id") not in COMPETICOES_COM_ODDS:
                 continue
             for partida in competicao.get("partidas", []):
                 odds_partida = []
                 for lista_odds in self._odds_por_casa:
                     encontrado = encontrar_odds(
-                        partida["time_casa"], partida["time_fora"], lista_odds
+                        competicao["id"], partida["time_casa"], partida["time_fora"], lista_odds
                     )
                     if encontrado:
                         odds_partida.append(encontrado)
