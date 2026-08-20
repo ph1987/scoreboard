@@ -18,6 +18,10 @@ INTERVALO_SEM_JOGO_HOJE_SEGUNDOS = 3 * 60 * 60
 # teto para um ciclo inteiro de coleta (todas as competições e seus lances)
 TIMEOUT_CICLO_SEGUNDOS = 120
 
+# por quanto tempo depois do horário marcado ainda vale buscar o lance a lance.
+# Evita rebuscar a rodada inteira de jogos antigos a cada 30s.
+JANELA_LANCES_APOS_INICIO = timedelta(hours=6)
+
 # o servidor pode rodar em outro fuso (ex: deploy na Europa); "hoje" precisa ser
 # sempre calculado no horário do Brasil, que não observa horário de verão desde 2019
 FUSO_BRASIL = timezone(timedelta(hours=-3))
@@ -62,6 +66,10 @@ STATUS_POR_BROADCAST = {
 # "FIM_DE_JOGO" é o apito final; "POS_JOGO" é a cobertura editorial que vem depois —
 # ambos indicam que a partida já encerrou no lance a lance
 PERIODOS_ENCERRADOS = {"FIM_DE_JOGO", "POS_JOGO"}
+
+# antes do apito inicial a página da partida nem publica o bloco de lances, então
+# "sem período" já significa que o lance a lance não tem o que dizer
+PERIODOS_SEM_RESPOSTA = {"PRE_JOGO"}
 
 # "moment" vem relativo ao período (zera a cada tempo); somamos a base de cada
 # período para obter o minuto padrão de partida (base 90)
@@ -155,6 +163,20 @@ def _status_partida(jogo: dict) -> str:
     if broadcast_id in STATUS_POR_BROADCAST:
         return STATUS_POR_BROADCAST[broadcast_id]
     return "agendado"
+
+
+def _status_por_periodo(periodo: str | None) -> str | None:
+    """Status derivado do lance a lance, ou None quando ele não sabe responder.
+
+    O resumo da rodada atrasa nos dois sentidos: já apareceu dizendo "pré-jogo"
+    com a partida no 23º minuto, e "ao vivo" com o jogo encerrado. O período do
+    lance mais recente é a informação mais próxima do que está acontecendo.
+    """
+    if not periodo or periodo in PERIODOS_SEM_RESPOSTA:
+        return None
+    if periodo in PERIODOS_ENCERRADOS:
+        return "encerrado"
+    return "ao_vivo"
 
 
 def _nome_fase(dados_competicao: dict) -> str:
@@ -259,7 +281,7 @@ async def _garantir_escudo_local(client: httpx.AsyncClient, equipe: dict) -> str
 
 async def _buscar_eventos_partida(
     client: httpx.AsyncClient, url_jogo: str, sigla_casa: str, sigla_fora: str
-) -> tuple[list[dict], bool]:
+) -> tuple[list[dict], str | None]:
     resp = await client.get(url_jogo, headers=HEADERS, timeout=15)
     resp.raise_for_status()
     html = resp.text
@@ -267,13 +289,13 @@ async def _buscar_eventos_partida(
     marcador = "plays: Array.from("
     idx = html.find(marcador)
     if idx == -1:
-        return [], False
+        return [], None
     inicio_array = html.find("[", idx)
     plays = json.loads(extrair_bloco_balanceado(html, inicio_array))
 
-    # o lance mais recente do blog ao vivo é mais confiável que o status "oficial"
-    # do resumo da rodada, que às vezes ainda diz "LIVE" com o jogo já encerrado
-    partida_encerrada = bool(plays) and (plays[0].get("period") or {}).get("id") in PERIODOS_ENCERRADOS
+    # o período do lance mais recente é a informação mais confiável sobre em que
+    # ponto a partida está; o resumo da rodada atrasa nos dois sentidos
+    periodo = (plays[0].get("period") or {}).get("id") if plays else None
 
     def time_adversario(sigla: str) -> str:
         return sigla_fora if sigla == sigla_casa else sigla_casa
@@ -317,25 +339,35 @@ async def _buscar_eventos_partida(
     for evento in eventos:
         del evento["_minuto_ordenacao"]
 
-    return eventos, partida_encerrada
+    return eventos, periodo
 
 
 async def _montar_partidas(client: httpx.AsyncClient, jogos: list[dict]) -> list[dict]:
     tarefas_eventos = []
     tarefas_escudos = []
+    agora = datetime.now(FUSO_BRASIL)
     for jogo in jogos:
         # no minuto em que a partida começa a fonte já marca "jogo_ja_comecou"
         # mas às vezes ainda não publicou a transmissão; sem essa guarda o
         # acesso direto estoura e derruba a competição inteira
         url_jogo = (jogo.get("transmissao") or {}).get("url")
-        if jogo.get("jogo_ja_comecou") and url_jogo:
+
+        # "jogo_ja_comecou" sozinho não serve de gatilho: ele atrasa, e enquanto
+        # isso a partida ficaria como "agendado" sem nunca consultarmos o lance a
+        # lance. Passado o horário marcado, vale olhar -- mas só por um tempo,
+        # senão a rodada inteira de jogos antigos seria rebuscada a cada ciclo.
+        inicio = _inicio_partida(jogo)
+        na_janela = inicio is not None and inicio <= agora <= inicio + JANELA_LANCES_APOS_INICIO
+        vale_buscar = jogo.get("jogo_ja_comecou") or na_janela
+
+        if vale_buscar and url_jogo:
             sigla_casa = jogo["equipes"]["mandante"]["sigla"]
             sigla_fora = jogo["equipes"]["visitante"]["sigla"]
             tarefas_eventos.append(
                 _buscar_eventos_partida(client, url_jogo, sigla_casa, sigla_fora)
             )
         else:
-            tarefas_eventos.append(asyncio.sleep(0, result=([], False)))
+            tarefas_eventos.append(asyncio.sleep(0, result=([], None)))
 
         tarefas_escudos.append(_garantir_escudo_local(client, jogo["equipes"]["mandante"]))
         tarefas_escudos.append(_garantir_escudo_local(client, jogo["equipes"]["visitante"]))
@@ -346,7 +378,7 @@ async def _montar_partidas(client: httpx.AsyncClient, jogos: list[dict]) -> list
     partidas = []
     for i, (jogo, eventos_resultado) in enumerate(zip(jogos, listas_eventos)):
         eventos_ok = not isinstance(eventos_resultado, Exception)
-        eventos, partida_encerrada = eventos_resultado if eventos_ok else ([], False)
+        eventos, periodo = eventos_resultado if eventos_ok else ([], None)
 
         escudo_casa = escudos[i * 2] if not isinstance(escudos[i * 2], Exception) else None
         escudo_fora = escudos[i * 2 + 1] if not isinstance(escudos[i * 2 + 1], Exception) else None
@@ -358,14 +390,14 @@ async def _montar_partidas(client: httpx.AsyncClient, jogos: list[dict]) -> list
         for evento in eventos:
             evento["escudo_time"] = escudo_por_sigla.get(evento["time"])
 
-        if jogo.get("jogo_ja_comecou") and eventos_ok:
+        status_do_lance = _status_por_periodo(periodo) if eventos_ok else None
+
+        if status_do_lance:
+            status = status_do_lance
             placar_casa, placar_fora = _placar_combinado(eventos, jogo, sigla_casa, sigla_fora)
-            # o lance a lance é mais confiável que o status "oficial" do resumo da
-            # rodada, que às vezes ainda diz "ao vivo" com o jogo já encerrado
-            status = "encerrado" if partida_encerrada else "ao_vivo"
         else:
-            # partida ainda não começou, ou não foi possível buscar o lance a lance:
-            # usa o placar/status oficiais do resumo da rodada como melhor informação disponível
+            # o lance a lance não tem o que dizer (partida não começou, ou a busca
+            # falhou): sobra o resumo da rodada como melhor informação disponível
             placar_casa = jogo["placar_oficial_mandante"]
             placar_fora = jogo["placar_oficial_visitante"]
             status = _status_partida(jogo)
