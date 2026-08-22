@@ -126,6 +126,11 @@ class MatchState:
         inicio = datetime.fromisoformat(inicio) if inicio else None
 
         if partida["status"] == "ao_vivo":
+            # "ao vivo" preso (transmissão que nunca virou ENCERRADA, ou lance a
+            # lance fora do ar) é dado velho, não uma partida real acontecendo
+            # agora; sem esse teto o jogo nunca sai do board
+            if inicio is not None and agora - inicio > IDADE_MAXIMA_APOS_INICIO:
+                return False
             return True
 
         if partida["status"] == "agendado":
