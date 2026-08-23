@@ -260,6 +260,15 @@ function criarOddItem(rotulo, valor) {
   return item;
 }
 
+function criarOddsLista(odds) {
+  const container = document.createElement("div");
+  container.className = "partida-odds-lista";
+  for (const item of odds) {
+    container.appendChild(criarOddsLinha(item));
+  }
+  return container;
+}
+
 function criarOddsLinha(odds) {
   const container = document.createElement("div");
   container.className = "partida-odds";
@@ -351,11 +360,6 @@ function criarPartidaCard(partida) {
       : LABEL_STATUS[partida.status] ?? partida.status;
   card.appendChild(status);
 
-  const ondePassa = partida.onde_passa ?? [];
-  if (ondePassa.length > 0 && (partida.status === "agendado" || partida.status === "ao_vivo")) {
-    card.appendChild(criarTransmissaoLinha(ondePassa));
-  }
-
   const eventos = partida.eventos ?? [];
   const aguardandoLance = faltaLanceDoGol(partida);
 
@@ -371,13 +375,17 @@ function criarPartidaCard(partida) {
     card.appendChild(listaEventos);
   }
 
-  if (partida.odds && partida.odds.length > 0 && (partida.status === "agendado" || partida.status === "ao_vivo")) {
-    const listaOdds = document.createElement("div");
-    listaOdds.className = "partida-odds-lista";
-    for (const odds of partida.odds) {
-      listaOdds.appendChild(criarOddsLinha(odds));
-    }
-    card.appendChild(listaOdds);
+  const emCartaz = partida.status === "agendado" || partida.status === "ao_vivo";
+  const ondePassa = partida.onde_passa ?? [];
+  const itensRodape = [
+    ...(ondePassa.length > 0 && emCartaz ? [criarTransmissaoLinha(ondePassa)] : []),
+    ...(partida.odds && partida.odds.length > 0 && emCartaz ? [criarOddsLista(partida.odds)] : []),
+  ];
+  if (itensRodape.length > 0) {
+    const rodape = document.createElement("div");
+    rodape.className = "partida-rodape";
+    rodape.append(...itensRodape);
+    card.appendChild(rodape);
   }
 
   return card;
