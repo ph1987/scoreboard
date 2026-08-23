@@ -1,5 +1,8 @@
 const INTERVALO_MS = 30000;
 const DURACAO_TOAST_MS = 60000;
+// bem acima do ciclo normal de coleta (30s, com teto de 120s por ciclo): só deve
+// disparar quando o coletor realmente parou de atualizar, não numa coleta lenta
+const LIMITE_DESATUALIZADO_MS = 5 * 60 * 1000;
 
 const ICONE_EVENTO = {
   gol: "⚽",
@@ -21,11 +24,41 @@ let alertasAtivos = false;
 let placaresVistos = null; // null = ainda não carregou nenhum dado (evita alertar na primeira carga)
 let dadosAtuais = null;
 
+function atualizarAvisoDesatualizado(mensagem) {
+  const aviso = document.getElementById("aviso-desatualizado");
+  if (!mensagem) {
+    aviso.hidden = true;
+    return;
+  }
+  aviso.textContent = mensagem;
+  aviso.hidden = false;
+}
+
+function verificarDesatualizacao(dados) {
+  // sem isso, um coletor parado (loop caído, fonte fora do ar por muito tempo)
+  // é indistinguível de um jogo sem lance novo -- o board mostraria placares e
+  // status congelados, cada vez mais velhos, sem qualquer aviso na tela
+  if (!dados.atualizado_em) {
+    atualizarAvisoDesatualizado(null);
+    return;
+  }
+  const idadeMs = Date.now() - new Date(dados.atualizado_em).getTime();
+  if (idadeMs <= LIMITE_DESATUALIZADO_MS) {
+    atualizarAvisoDesatualizado(null);
+    return;
+  }
+  const minutos = Math.round(idadeMs / 60000);
+  atualizarAvisoDesatualizado(
+    `Dados sem atualização há ${minutos} min — placares e jogos ao vivo podem estar desatualizados`
+  );
+}
+
 async function atualizarPlacar() {
   try {
     const resp = await fetch("/api/partidas");
     const dados = await resp.json();
     notificarNovidades(dados);
+    verificarDesatualizacao(dados);
 
     // renderizar() recria os cards do zero; sem isso, a página voltaria pro topo a cada ciclo
     const posicaoScroll = window.scrollY;
@@ -33,6 +66,7 @@ async function atualizarPlacar() {
     window.scrollTo(0, posicaoScroll);
   } catch (e) {
     console.error("Erro ao buscar partidas:", e);
+    atualizarAvisoDesatualizado("Não foi possível atualizar o placar — tentando de novo em instantes");
   }
 }
 

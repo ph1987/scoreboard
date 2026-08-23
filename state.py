@@ -38,6 +38,9 @@ class MatchState:
         self._ultima_competicao = {}  # id -> (dados, quando vieram)
         self._ordem_competicoes = []  # ids na ordem em que a fonte entrega
         self._atualizado_em = None  # quando a última coleta bem-sucedida terminou
+        # (competicao_id, time_casa, time_fora) -> {casa_de_apostas: odds}, última odd
+        # boa vista de cada partida em cartaz -- ver _aplicar_odds
+        self._ultima_odds_partida = {}
 
     def get_current(self):
         if not self._current:
@@ -149,15 +152,33 @@ class MatchState:
         return agora - fim < PERMANENCIA_APOS_FIM
 
     def _aplicar_odds(self, dados: dict):
+        """Casa as odds de cada casa de apostas com a partida.
+
+        Ao vivo, as fontes costumam tirar a partida da própria listagem de
+        pré-jogo (Betnacional) ou trocar o mercado que fica na posição 0
+        (Betano) assim que a bola rola -- sem aviso, e sem que a odd em si
+        tenha deixado de valer. Sem guardar a última odd boa por partida, ela
+        sumiria do board no primeiro ciclo de coleta depois do apito inicial,
+        exatamente quando o jogo (agora ao vivo) mais precisa aparecer.
+        """
+        chaves_vistas = set()
         for competicao in dados.get("competicoes", []):
             if competicao.get("id") not in COMPETICOES_COM_ODDS:
                 continue
             for partida in competicao.get("partidas", []):
-                odds_partida = []
+                chave = (competicao["id"], partida["time_casa"], partida["time_fora"])
+                chaves_vistas.add(chave)
+                cache_partida = self._ultima_odds_partida.setdefault(chave, {})
                 for lista_odds in self._odds_por_casa:
                     encontrado = encontrar_odds(
                         competicao["id"], partida["time_casa"], partida["time_fora"], lista_odds
                     )
                     if encontrado:
-                        odds_partida.append(encontrado)
-                partida["odds"] = odds_partida
+                        cache_partida[encontrado["casa_de_apostas"]] = encontrado
+                partida["odds"] = list(cache_partida.values())
+
+        # descarta o histórico de partidas que já saíram do board -- senão a
+        # memória cresce um pouco a cada rodada nova, pra sempre
+        self._ultima_odds_partida = {
+            chave: valor for chave, valor in self._ultima_odds_partida.items() if chave in chaves_vistas
+        }
