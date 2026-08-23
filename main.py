@@ -26,6 +26,7 @@ class EstaticosComCache(StaticFiles):
 from state import MatchState
 from scraper import scrape_loop
 from odds import odds_loop
+from transmissao import transmissao_loop
 
 app = FastAPI()
 
@@ -87,6 +88,7 @@ async def startup_event():
     # dispara o scraper e o buscador de odds rodando em background, sem bloquear a API
     _supervisionar(lambda: scrape_loop(state), "scrape")
     _supervisionar(lambda: odds_loop(state), "odds")
+    _supervisionar(lambda: transmissao_loop(state), "transmissao")
 
 @app.get("/api/partidas")
 async def get_partidas():

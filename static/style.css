@@ -305,6 +305,37 @@ body {
   flex-shrink: 0;
 }
 
+.partida-transmissao {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 5px;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed #2f7a4f;
+  font-size: 10px;
+}
+
+.partida-transmissao-rotulo {
+  color: #7fa98f;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+.transmissao-badge {
+  border: 1px solid #2f7a4f;
+  padding: 2px 6px;
+  color: #ffffff;
+  white-space: nowrap;
+}
+
+.transmissao-badge--gratis {
+  border-color: #ffd700;
+  color: #ffd700;
+}
+
 .partida-odds-lista {
   display: grid;
   grid-template-columns: repeat(4, auto);
