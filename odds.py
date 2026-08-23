@@ -146,13 +146,15 @@ async def _fetch_odds_betnacional() -> list[dict]:
     eventos = cache["events"]["entities"]
     outcomes = cache["outcomes"]["entities"]
 
+    # confirmado com dado real de produção: ao vivo, o evento troca de "prematch"
+    # pra "live", mas o outcome já vem com a odd corrente no mesmo payload -- não
+    # tem nada a esperar de um canal separado, só aceitar os dois tipos
+    TIPOS_VALIDOS = {"prematch", "live"}
+
     odds = []
     descartados_tipo = 0
     for evento_id, evento in eventos.items():
-        if evento.get("type") != "prematch":
-            # suspeita: assim como na Betano, o jogo pode sair do tipo "prematch"
-            # assim que a bola rola, tirando a odd do board bem quando o jogo
-            # (agora ao vivo) mais precisa aparecer
+        if evento.get("type") not in TIPOS_VALIDOS:
             descartados_tipo += 1
             continue
         if evento.get("tournament", {}).get("name") != NOME_TORNEIO_BETNACIONAL:
@@ -188,7 +190,7 @@ async def _fetch_odds_betnacional() -> list[dict]:
 
     print(
         f"Betnacional: {len(eventos)} evento(s) na listagem, {len(odds)} com 1X2 válido "
-        f"do Brasileirão, {descartados_tipo} descartado(s) por não ser 'prematch'"
+        f"do Brasileirão, {descartados_tipo} descartado(s) por tipo (nem 'prematch' nem 'live')"
     )
 
     return odds
