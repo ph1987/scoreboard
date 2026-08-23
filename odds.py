@@ -58,9 +58,13 @@ async def _fetch_odds_betano(competicao_id: str, url: str) -> list[dict]:
         resp.raise_for_status()
         html = resp.text
 
-    marcador = '"events":[{"stats"'
-    idx = html.find(marcador)
-    if idx == -1:
+    # a primeira chave de cada evento no JSON varia por competição -- o
+    # Brasileirão vem com "sportId" primeiro, as demais com "stats"; sem
+    # aceitar as duas formas, o Brasileirão caía direto no "não encontrado"
+    # abaixo, silenciosamente, em todo ciclo
+    marcadores_possiveis = ('"events":[{"stats"', '"events":[{"sportId"')
+    marcador = next((m for m in marcadores_possiveis if m in html), None)
+    if marcador is None:
         # sem log aqui, esse retorno vazio é indistinguível de "sem jogos hoje"
         # de fora -- foi assim que o Brasileirão ficou sem odds da Betano sem
         # nenhum sinal no log, em todo ciclo, ao vivo ou não
@@ -69,6 +73,7 @@ async def _fetch_odds_betano(competicao_id: str, url: str) -> list[dict]:
             f"(status {resp.status_code}, url final {resp.url}, {len(html)} bytes)"
         )
         return []
+    idx = html.find(marcador)
     inicio_array = html.rfind("[", 0, idx + len(marcador))
     eventos = json.loads(extrair_bloco_balanceado(html, inicio_array))
 
