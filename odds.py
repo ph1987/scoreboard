@@ -40,10 +40,22 @@ async def _fetch_odds_betano(competicao_id: str, url: str) -> list[dict]:
         resp.raise_for_status()
         html = resp.text
 
-    marcador = '"events":[{"stats"'
-    idx = html.find(marcador)
-    if idx == -1:
+    # a primeira chave de cada evento no JSON varia por competição -- o
+    # Brasileirão vem com "sportId" primeiro, as demais com "stats"; sem
+    # aceitar as duas formas, o Brasileirão caía direto no "não encontrado"
+    # abaixo, silenciosamente, em todo ciclo
+    marcadores_possiveis = ('"events":[{"stats"', '"events":[{"sportId"')
+    marcador = next((m for m in marcadores_possiveis if m in html), None)
+    if marcador is None:
+        # sem log aqui, esse retorno vazio é indistinguível de "sem jogos hoje"
+        # de fora -- foi assim que o Brasileirão ficou sem odds da Betano sem
+        # nenhum sinal no log, em todo ciclo, ao vivo ou não
+        print(
+            f"Betano ({competicao_id}): marcador de eventos não encontrado "
+            f"(status {resp.status_code}, url final {resp.url}, {len(html)} bytes)"
+        )
         return []
+    idx = html.find(marcador)
     inicio_array = html.rfind("[", 0, idx + len(marcador))
     eventos = json.loads(extrair_bloco_balanceado(html, inicio_array))
 
@@ -99,10 +111,15 @@ async def _fetch_odds_betnacional() -> list[dict]:
     marcador_tag = "__NEXT_DATA__"
     idx = html.find(marcador_tag)
     if idx == -1:
+        print(
+            f"Betnacional: marcador __NEXT_DATA__ não encontrado "
+            f"(status {resp.status_code}, url final {resp.url}, {len(html)} bytes)"
+        )
         return []
     marcador_json = 'type="application/json">'
     inicio = html.find(marcador_json, idx)
     if inicio == -1:
+        print("Betnacional: __NEXT_DATA__ encontrado mas sem bloco JSON em seguida")
         return []
     inicio += len(marcador_json)
     dados = json.loads(extrair_bloco_balanceado(html, inicio))
@@ -111,9 +128,16 @@ async def _fetch_odds_betnacional() -> list[dict]:
     eventos = cache["events"]["entities"]
     outcomes = cache["outcomes"]["entities"]
 
+    # confirmado com dado real de produção: ao vivo, o evento troca de "prematch"
+    # pra "live", mas o outcome já vem com a odd corrente no mesmo payload -- não
+    # tem nada a esperar de um canal separado, só aceitar os dois tipos
+    TIPOS_VALIDOS = {"prematch", "live"}
+
     odds = []
+    descartados_tipo = 0
     for evento_id, evento in eventos.items():
-        if evento.get("type") != "prematch":
+        if evento.get("type") not in TIPOS_VALIDOS:
+            descartados_tipo += 1
             continue
         if evento.get("tournament", {}).get("name") != NOME_TORNEIO_BETNACIONAL:
             continue
@@ -145,6 +169,11 @@ async def _fetch_odds_betnacional() -> list[dict]:
                 "casa_de_apostas": "Betnacional",
             }
         )
+
+    print(
+        f"Betnacional: {len(eventos)} evento(s) na listagem, {len(odds)} com 1X2 válido "
+        f"do Brasileirão, {descartados_tipo} descartado(s) por tipo (nem 'prematch' nem 'live')"
+    )
 
     return odds
 
