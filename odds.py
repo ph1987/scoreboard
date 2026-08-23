@@ -61,6 +61,13 @@ async def _fetch_odds_betano(competicao_id: str, url: str) -> list[dict]:
     marcador = '"events":[{"stats"'
     idx = html.find(marcador)
     if idx == -1:
+        # sem log aqui, esse retorno vazio é indistinguível de "sem jogos hoje"
+        # de fora -- foi assim que o Brasileirão ficou sem odds da Betano sem
+        # nenhum sinal no log, em todo ciclo, ao vivo ou não
+        print(
+            f"Betano ({competicao_id}): marcador de eventos não encontrado "
+            f"(status {resp.status_code}, url final {resp.url}, {len(html)} bytes)"
+        )
         return []
     inicio_array = html.rfind("[", 0, idx + len(marcador))
     eventos = json.loads(extrair_bloco_balanceado(html, inicio_array))
@@ -117,10 +124,15 @@ async def _fetch_odds_betnacional() -> list[dict]:
     marcador_tag = "__NEXT_DATA__"
     idx = html.find(marcador_tag)
     if idx == -1:
+        print(
+            f"Betnacional: marcador __NEXT_DATA__ não encontrado "
+            f"(status {resp.status_code}, url final {resp.url}, {len(html)} bytes)"
+        )
         return []
     marcador_json = 'type="application/json">'
     inicio = html.find(marcador_json, idx)
     if inicio == -1:
+        print("Betnacional: __NEXT_DATA__ encontrado mas sem bloco JSON em seguida")
         return []
     inicio += len(marcador_json)
     dados = json.loads(extrair_bloco_balanceado(html, inicio))
@@ -130,8 +142,13 @@ async def _fetch_odds_betnacional() -> list[dict]:
     outcomes = cache["outcomes"]["entities"]
 
     odds = []
+    descartados_tipo = 0
     for evento_id, evento in eventos.items():
         if evento.get("type") != "prematch":
+            # suspeita: assim como na Betano, o jogo pode sair do tipo "prematch"
+            # assim que a bola rola, tirando a odd do board bem quando o jogo
+            # (agora ao vivo) mais precisa aparecer
+            descartados_tipo += 1
             continue
         if evento.get("tournament", {}).get("name") != NOME_TORNEIO_BETNACIONAL:
             continue
@@ -163,6 +180,11 @@ async def _fetch_odds_betnacional() -> list[dict]:
                 "casa_de_apostas": "Betnacional",
             }
         )
+
+    print(
+        f"Betnacional: {len(eventos)} evento(s) na listagem, {len(odds)} com 1X2 válido "
+        f"do Brasileirão, {descartados_tipo} descartado(s) por não ser 'prematch'"
+    )
 
     return odds
 
