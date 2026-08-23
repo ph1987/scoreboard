@@ -2,12 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import json
-import re
-import unicodedata
 
 import httpx
 
-from parsing import extrair_bloco_balanceado
+from parsing import extrair_bloco_balanceado, mesmo_time
 
 # scraping direto e gratuito — sem limite de créditos como numa API paga,
 # mas ainda assim não há motivo pra bater nos sites com mais frequência que o placar
@@ -34,22 +32,6 @@ HEADERS = {
         "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
     )
 }
-
-
-def _normalizar(nome: str) -> str:
-    sem_acento = unicodedata.normalize("NFKD", nome).encode("ascii", "ignore").decode()
-    return re.sub(r"[^a-z0-9]+", " ", sem_acento.lower()).strip()
-
-
-def _mesmo_time(nome_a: str, nome_b: str) -> bool:
-    a, b = _normalizar(nome_a), _normalizar(nome_b)
-    if a == b:
-        return True
-    palavras_a, palavras_b = set(a.split()), set(b.split())
-    if not palavras_a or not palavras_b:
-        return False
-    intersecao = palavras_a & palavras_b
-    return bool(intersecao) and len(intersecao) / min(len(palavras_a), len(palavras_b)) >= 0.5
 
 
 async def _fetch_odds_betano(competicao_id: str, url: str) -> list[dict]:
@@ -197,7 +179,7 @@ def encontrar_odds(
         # noutra copa na mesma semana — sem esse filtro a odd vazaria pro jogo errado
         if item["competicao_id"] != competicao_id:
             continue
-        if _mesmo_time(item["time_casa"], time_casa) and _mesmo_time(item["time_fora"], time_fora):
+        if mesmo_time(item["time_casa"], time_casa) and mesmo_time(item["time_fora"], time_fora):
             return {
                 "casa": item["casa"],
                 "empate": item["empate"],

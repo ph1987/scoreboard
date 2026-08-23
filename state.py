@@ -2,6 +2,7 @@ from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 
 from odds import COMPETICOES_BETANO, encontrar_odds
+from transmissao import encontrar_transmissao
 
 # competições com odds coletadas — hoje é o que a Betano cobre. Times em comum entre essas
 # competições na mesma semana (ex: Palmeiras jogando Brasileirão e Libertadores) só recebem
@@ -41,6 +42,10 @@ class MatchState:
         # (competicao_id, time_casa, time_fora) -> {casa_de_apostas: odds}, última odd
         # boa vista de cada partida em cartaz -- ver _aplicar_odds
         self._ultima_odds_partida = {}
+        self._transmissoes = []  # lista bruta do Guia da Bola, atualizada num ciclo separado
+        # (competicao_id, time_casa, time_fora) -> lista de canais, última vista
+        # de cada partida em cartaz -- mesmo motivo do cache de odds acima
+        self._ultima_transmissao_partida = {}
 
     def get_current(self):
         if not self._current:
@@ -61,6 +66,7 @@ class MatchState:
         self._completar_competicoes_ausentes(new_data)
         self._filtrar_visiveis(new_data)
         self._aplicar_odds(new_data)
+        self._aplicar_transmissoes(new_data)
         self._atualizado_em = datetime.now(FUSO_BRASIL)
         changed = new_data != self._current
         if changed:
@@ -70,6 +76,10 @@ class MatchState:
     def update_odds(self, odds_por_casa: list[list[dict]]):
         self._odds_por_casa = odds_por_casa
         self._aplicar_odds(self._current)
+
+    def update_transmissoes(self, transmissoes: list[dict]):
+        self._transmissoes = transmissoes
+        self._aplicar_transmissoes(self._current)
 
     def _completar_competicoes_ausentes(self, dados: dict):
         """Repõe as competições que falharam na coleta com os últimos dados bons.
@@ -181,4 +191,24 @@ class MatchState:
         # memória cresce um pouco a cada rodada nova, pra sempre
         self._ultima_odds_partida = {
             chave: valor for chave, valor in self._ultima_odds_partida.items() if chave in chaves_vistas
+        }
+
+    def _aplicar_transmissoes(self, dados: dict):
+        """Casa "onde passa" com cada partida, com o mesmo cache de última-vista
+        usado pelas odds (ver _aplicar_odds): sem isso, uma falha passageira na
+        coleta faria a informação sumir do board por um ciclo."""
+        chaves_vistas = set()
+        for competicao in dados.get("competicoes", []):
+            for partida in competicao.get("partidas", []):
+                chave = (competicao["id"], partida["time_casa"], partida["time_fora"])
+                chaves_vistas.add(chave)
+                canais = encontrar_transmissao(partida["time_casa"], partida["time_fora"], self._transmissoes)
+                if canais:
+                    self._ultima_transmissao_partida[chave] = canais
+                partida["onde_passa"] = self._ultima_transmissao_partida.get(chave, [])
+
+        self._ultima_transmissao_partida = {
+            chave: valor
+            for chave, valor in self._ultima_transmissao_partida.items()
+            if chave in chaves_vistas
         }

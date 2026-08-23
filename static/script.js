@@ -278,6 +278,29 @@ function criarOddsLinha(odds) {
   return container;
 }
 
+function criarTransmissaoBadge(canal) {
+  const span = document.createElement("span");
+  span.className = `transmissao-badge${canal.gratis ? " transmissao-badge--gratis" : ""}`;
+  span.textContent = canal.nome;
+  return span;
+}
+
+function criarTransmissaoLinha(canais) {
+  const container = document.createElement("div");
+  container.className = "partida-transmissao";
+
+  const rotulo = document.createElement("span");
+  rotulo.className = "partida-transmissao-rotulo";
+  rotulo.textContent = "Onde passa:";
+  container.appendChild(rotulo);
+
+  for (const canal of canais) {
+    container.appendChild(criarTransmissaoBadge(canal));
+  }
+
+  return container;
+}
+
 function criarPartidaCard(partida) {
   const card = document.createElement("div");
   card.className = `partida partida--${partida.status}`;
@@ -327,6 +350,11 @@ function criarPartidaCard(partida) {
       ? partida.data_hora
       : LABEL_STATUS[partida.status] ?? partida.status;
   card.appendChild(status);
+
+  const ondePassa = partida.onde_passa ?? [];
+  if (ondePassa.length > 0 && (partida.status === "agendado" || partida.status === "ao_vivo")) {
+    card.appendChild(criarTransmissaoLinha(ondePassa));
+  }
 
   const eventos = partida.eventos ?? [];
   const aguardandoLance = faltaLanceDoGol(partida);
