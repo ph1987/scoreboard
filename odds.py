@@ -66,6 +66,7 @@ async def _fetch_odds_betano(competicao_id: str, url: str) -> list[dict]:
     eventos = json.loads(extrair_bloco_balanceado(html, inicio_array))
 
     odds = []
+    descartados = []
     for evento in eventos:
         participantes = evento.get("participants") or []
         markets = evento.get("markets") or []
@@ -75,6 +76,10 @@ async def _fetch_odds_betano(competicao_id: str, url: str) -> list[dict]:
         selecoes = markets[0].get("selections") or []
         precos = {s["name"]: s["price"] for s in selecoes}
         if not {"1", "X", "2"} <= precos.keys():
+            # suspeita: jogo ao vivo troca o mercado que fica na posição 0
+            # (deixa de ser o 1X2), ou o evento nem devia ter chegado até aqui
+            nome_par = f"{participantes[0].get('name')} x {participantes[1].get('name')}"
+            descartados.append(f"{nome_par} (mercado[0]={markets[0].get('name')!r})")
             continue
 
         odds.append(
@@ -87,6 +92,17 @@ async def _fetch_odds_betano(competicao_id: str, url: str) -> list[dict]:
                 "fora": precos["2"],
                 "casa_de_apostas": "Betano",
             }
+        )
+
+    # contagem a cada ciclo: se o total cair na hora de um jogo em cartaz, é sinal
+    # de que a fonte tira o evento da listagem de pré-jogo assim que ele começa
+    # (em vez de só trocar de mercado, que o log de descarte acima já cobre)
+    print(f"Betano ({competicao_id}): {len(eventos)} evento(s) na listagem, {len(odds)} com 1X2 válido")
+
+    if descartados:
+        print(
+            f"Betano ({competicao_id}): {len(descartados)} evento(s) sem mercado 1X2 na posição 0: "
+            + "; ".join(descartados)
         )
 
     return odds
