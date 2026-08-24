@@ -298,11 +298,6 @@ function criarTransmissaoLinha(canais) {
   const container = document.createElement("div");
   container.className = "partida-transmissao";
 
-  const rotulo = document.createElement("span");
-  rotulo.className = "partida-transmissao-rotulo";
-  rotulo.textContent = "Onde passa:";
-  container.appendChild(rotulo);
-
   for (const canal of canais) {
     container.appendChild(criarTransmissaoBadge(canal));
   }

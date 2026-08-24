@@ -325,13 +325,6 @@ body {
   font-size: 10px;
 }
 
-.partida-transmissao-rotulo {
-  color: #7fa98f;
-  letter-spacing: 0.5px;
-  text-transform: uppercase;
-  flex-shrink: 0;
-}
-
 .transmissao-badge {
   border: 1px solid #2f7a4f;
   padding: 2px 6px;
