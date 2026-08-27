@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 
 import httpx
 
@@ -20,6 +21,13 @@ HEADERS = {
         "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
     )
 }
+
+
+def _nome_canal_sem_praca(nome: str) -> str:
+    """Corta a lista de praças regionais que a fonte às vezes anexa entre
+    parênteses (ex: "Globo (RJ, BA, ES, ...)"); exibida inteira, essa lista
+    estoura o badge e quebra o layout do card."""
+    return re.sub(r"\s*\([^)]*\)\s*$", "", nome).strip()
 
 
 async def fetch_transmissoes() -> list[dict]:
@@ -50,7 +58,7 @@ async def fetch_transmissoes() -> list[dict]:
             time_casa = jogo.get("homeTeam")
             time_fora = jogo.get("awayTeam")
             canais = [
-                {"nome": canal["name"], "gratis": bool(canal.get("free"))}
+                {"nome": _nome_canal_sem_praca(canal["name"]), "gratis": bool(canal.get("free"))}
                 for canal in jogo.get("channels") or []
                 if canal.get("name")
             ]
