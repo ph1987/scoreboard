@@ -256,6 +256,31 @@ def _minuto_partida(play: dict) -> tuple[int, str]:
     return (minuto_total, f"{minuto_total}'")
 
 
+def _minuto_corrente(plays: list[dict]) -> str | None:
+    """Minuto em que a partida está agora, tirado do lance mais recente.
+
+    Diferente de _minuto_partida (que rotula o minuto de um gol/cartão e soma 1,
+    para um lance no primeiro minuto virar "1'"), aqui queremos o relógio corrido:
+    "29:05" no segundo tempo é o 74º minuto e vira "74'".
+
+    Só há minuto a mostrar com a bola rolando. No intervalo, no pré-jogo ou depois
+    do apito final o lance do topo cai num período fora de BASE_MINUTO_POR_PERIODO
+    e devolvemos None -- o board então mostra só "Ao vivo", como antes.
+    """
+    for play in plays:
+        period_id = (play.get("period") or {}).get("id")
+        if period_id not in BASE_MINUTO_POR_PERIODO:
+            return None
+        minutos_str = (play.get("moment") or "").split(":", 1)[0]
+        try:
+            minutos = int(minutos_str)
+        except ValueError:
+            # entrada editorial sem relógio no topo da lista; tenta o próximo lance
+            continue
+        return f"{BASE_MINUTO_POR_PERIODO[period_id] + minutos}'"
+    return None
+
+
 async def _garantir_escudo_local(client: httpx.AsyncClient, equipe: dict) -> str | None:
     """Baixa o escudo do time uma única vez e guarda em uploads/escudos/,
     para servir localmente em vez de referenciar a CDN da fonte a cada carregamento."""
@@ -281,7 +306,7 @@ async def _garantir_escudo_local(client: httpx.AsyncClient, equipe: dict) -> str
 
 async def _buscar_eventos_partida(
     client: httpx.AsyncClient, url_jogo: str, sigla_casa: str, sigla_fora: str
-) -> tuple[list[dict], str | None]:
+) -> tuple[list[dict], str | None, str | None]:
     resp = await client.get(url_jogo, headers=HEADERS, timeout=15)
     resp.raise_for_status()
     html = resp.text
@@ -289,13 +314,14 @@ async def _buscar_eventos_partida(
     marcador = "plays: Array.from("
     idx = html.find(marcador)
     if idx == -1:
-        return [], None
+        return [], None, None
     inicio_array = html.find("[", idx)
     plays = json.loads(extrair_bloco_balanceado(html, inicio_array))
 
     # o período do lance mais recente é a informação mais confiável sobre em que
     # ponto a partida está; o resumo da rodada atrasa nos dois sentidos
     periodo = (plays[0].get("period") or {}).get("id") if plays else None
+    minuto_atual = _minuto_corrente(plays)
 
     def time_adversario(sigla: str) -> str:
         return sigla_fora if sigla == sigla_casa else sigla_casa
@@ -339,7 +365,7 @@ async def _buscar_eventos_partida(
     for evento in eventos:
         del evento["_minuto_ordenacao"]
 
-    return eventos, periodo
+    return eventos, periodo, minuto_atual
 
 
 async def _montar_partidas(client: httpx.AsyncClient, jogos: list[dict]) -> list[dict]:
@@ -367,7 +393,7 @@ async def _montar_partidas(client: httpx.AsyncClient, jogos: list[dict]) -> list
                 _buscar_eventos_partida(client, url_jogo, sigla_casa, sigla_fora)
             )
         else:
-            tarefas_eventos.append(asyncio.sleep(0, result=([], None)))
+            tarefas_eventos.append(asyncio.sleep(0, result=([], None, None)))
 
         tarefas_escudos.append(_garantir_escudo_local(client, jogo["equipes"]["mandante"]))
         tarefas_escudos.append(_garantir_escudo_local(client, jogo["equipes"]["visitante"]))
@@ -378,7 +404,7 @@ async def _montar_partidas(client: httpx.AsyncClient, jogos: list[dict]) -> list
     partidas = []
     for i, (jogo, eventos_resultado) in enumerate(zip(jogos, listas_eventos)):
         eventos_ok = not isinstance(eventos_resultado, Exception)
-        eventos, periodo = eventos_resultado if eventos_ok else ([], None)
+        eventos, periodo, minuto_atual = eventos_resultado if eventos_ok else ([], None, None)
 
         escudo_casa = escudos[i * 2] if not isinstance(escudos[i * 2], Exception) else None
         escudo_fora = escudos[i * 2 + 1] if not isinstance(escudos[i * 2 + 1], Exception) else None
@@ -414,6 +440,9 @@ async def _montar_partidas(client: httpx.AsyncClient, jogos: list[dict]) -> list
                 "placar_fora": placar_fora,
                 "eventos": eventos,
                 "status": status,
+                # minuto corrido da bola rolando, só quando a partida está ao vivo;
+                # no intervalo e fora dele fica None e o board mostra só "Ao vivo"
+                "minuto": minuto_atual if status == "ao_vivo" else None,
                 # o estado usa o início p/ decidir quando a partida entra e sai do board
                 "inicio": inicio.isoformat() if inicio else None,
                 "data_hora": _data_hora_formatada(
