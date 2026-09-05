@@ -353,10 +353,10 @@ function criarPartidaCard(partida) {
     partida.status === "agendado" && partida.data_hora
       ? partida.data_hora
       : LABEL_STATUS[partida.status] ?? partida.status;
-  // ao vivo, mostra o minuto corrido ao lado ("Ao vivo 74'"); o minuto só vem
+  // ao vivo, mostra o minuto corrido ao lado ("Ao vivo — 74'"); o minuto só vem
   // com a bola rolando, então no intervalo continua só "Ao vivo"
   if (partida.status === "ao_vivo" && partida.minuto) {
-    textoStatus += ` ${partida.minuto}`;
+    textoStatus += ` — ${partida.minuto}`;
   }
   status.textContent = textoStatus;
   card.appendChild(status);
